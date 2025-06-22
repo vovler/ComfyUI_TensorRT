@@ -1,6 +1,3 @@
-#Put this in the custom_nodes folder, put your tensorrt engine files in ComfyUI/models/tensorrt/ (you will have to create the directory)
-# pyright: reportAttributeAccessIssue=false
-
 import torch
 import os
 
