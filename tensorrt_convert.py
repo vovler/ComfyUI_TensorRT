@@ -3,7 +3,6 @@ import sys
 import os
 import time
 import comfy.model_management
-
 import tensorrt as trt
 import folder_paths
 from tqdm import tqdm
