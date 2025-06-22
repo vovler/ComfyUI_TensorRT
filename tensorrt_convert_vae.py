@@ -102,9 +102,15 @@ class TRT_VAE_CONVERSION_BASE:
         # Load VAE to GPU
         vae_model = vae.first_stage_model
         device = comfy.model_management.get_torch_device()
-        vae_model = vae_model.to(device)
         
-        dtype = torch.float16
+        # Get the VAE model's native dtype and use it for consistency
+        # Check the dtype of the first parameter to determine model dtype
+        model_dtype = next(vae_model.parameters()).dtype
+        
+        # Move VAE to device and ensure consistent dtype
+        vae_model = vae_model.to(device=device, dtype=model_dtype)
+        
+        dtype = model_dtype
 
         # Create wrapper for the VAE part we want to convert
         if is_encoder:
