@@ -110,9 +110,9 @@ class TRT_MODEL_CONVERSION_BASE:
             "context": {0: "batch", 1: "num_embeds"},
         }
 
-        transformer_options = model.model_options['transformer_options'].copy()
+        
 
-        unet = SdUnet(unet, transformer_options, input_names[3:])
+        
 
         input_channels = model.model.model_config.unet_config.get("in_channels", 4)
 
@@ -157,6 +157,9 @@ class TRT_MODEL_CONVERSION_BASE:
                 ),
             )
 
+        transformer_options = model.model.model_config.unet_config.get("transformer_options", {})
+        unet = SdUnet(unet, transformer_options, input_names[3:])
+        
         os.makedirs(os.path.dirname(output_onnx), exist_ok=True)
         torch.onnx.export(
             unet,
