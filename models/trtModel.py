@@ -1,8 +1,5 @@
-import torch
+
 from comfy.model_patcher import ModelPatcher
-from comfy.model_management import LoadedModel, get_torch_device
-from .unet import TrTUnet
-from pathlib import PurePath
 import comfy.model_base
 
 class TrTModelManageable(ModelPatcher):
