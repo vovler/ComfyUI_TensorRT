@@ -159,6 +159,7 @@ class TRT_MODEL_CONVERSION_BASE:
 
         transformer_options = model.model.model_config.unet_config.get("transformer_options", {})
         unet = SdUnet(unet, transformer_options, input_names[3:])
+
         
         os.makedirs(os.path.dirname(output_onnx), exist_ok=True)
         torch.onnx.export(

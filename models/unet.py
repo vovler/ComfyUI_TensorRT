@@ -2,7 +2,6 @@ import torch
 import os
 import tensorrt as trt
 import torch
-from .trtModel import TrTModelManageable
 from ..utils.trt_datatype_to_torch import trt_datatype_to_torch
 from ..utils.tensorrt_error_recorder import check_for_trt_errors
 
@@ -23,7 +22,7 @@ class SdUnet(torch.nn.Module):
         return self.unet(x, timesteps, context, transformer_options=self.transformer_options, **extra_args)
 
 
-class TrTUnet(TrTModelManageable):
+class TrTUnet:
     def __init__(self, engine_path, runtime):
         self.dtype = torch.bfloat16
         self.engine_path = engine_path
@@ -31,7 +30,6 @@ class TrTUnet(TrTModelManageable):
         self.context = None
         self._size = int(os.stat(engine_path).st_size)
         self.runtime = runtime
-        #super().__init__(None, None, None, None)
 
     def load(self):
         if self.engine is not None or self.context is not None:
