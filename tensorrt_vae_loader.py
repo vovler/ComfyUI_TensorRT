@@ -255,6 +255,9 @@ class TrTVAE:
         # Call TensorRT encoder
         latents = self.encoder(x)
         
+        # Convert to float32 for compatibility with ComfyUI latent processing
+        latents = latents.to(dtype=torch.float32)
+        
         return latents
 
     def decode(self, samples):
@@ -271,6 +274,9 @@ class TrTVAE:
         # Convert output from [-1, 1] to [0, 1] range
         images = (images + 1.0) / 2.0
         images = torch.clamp(images, 0.0, 1.0)
+        
+        # Convert to float32 for compatibility with ComfyUI image processing
+        images = images.to(dtype=torch.float32)
         
         return images
 
