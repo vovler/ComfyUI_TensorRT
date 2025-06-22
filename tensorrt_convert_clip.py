@@ -180,7 +180,7 @@ class TRT_CLIP_CONVERSION_BASE:
 
         if not success:
             print("ONNX load ERROR")
-            return ()
+            return {}
 
         config = builder.create_builder_config()
         profile = builder.create_optimization_profile()
@@ -254,7 +254,9 @@ class TRT_CLIP_CONVERSION_BASE:
 
         self._save_timing_cache(config)
 
-        return ()
+        clip_type = "CLIP-L" if is_clip_l else "CLIP-G"
+        print(f"TensorRT {clip_type} conversion complete! Engine saved to: {output_trt_engine}")
+        return {}
 
 
 class DYNAMIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):

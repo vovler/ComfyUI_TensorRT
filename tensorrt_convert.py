@@ -191,7 +191,7 @@ class TRT_MODEL_CONVERSION_BASE:
 
         if not success:
             print("ONNX load ERROR")
-            return ()
+            return {}
 
         config = builder.create_builder_config()
         profile = builder.create_optimization_profile()
@@ -275,7 +275,8 @@ class TRT_MODEL_CONVERSION_BASE:
 
         self._save_timing_cache(config)
 
-        return ()
+        print(f"TensorRT UNet conversion complete! Engine saved to: {output_trt_engine}")
+        return {}
 
 
 class DYNAMIC_TRT_MODEL_CONVERSION(TRT_MODEL_CONVERSION_BASE):

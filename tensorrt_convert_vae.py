@@ -177,7 +177,7 @@ class TRT_VAE_CONVERSION_BASE:
 
         if not success:
             print("ONNX load ERROR")
-            return ()
+            return {}
 
         config = builder.create_builder_config()
         profile = builder.create_optimization_profile()
@@ -257,7 +257,9 @@ class TRT_VAE_CONVERSION_BASE:
 
         self._save_timing_cache(config)
 
-        return ()
+        vae_type = "encoder" if is_encoder else "decoder"
+        print(f"TensorRT VAE {vae_type} conversion complete! Engine saved to: {output_trt_engine}")
+        return {}
 
 
 class DYNAMIC_TRT_VAE_DECODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
