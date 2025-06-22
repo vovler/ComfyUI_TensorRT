@@ -58,22 +58,26 @@ class TrTVAEEncoder:
             self.context.set_input_shape(k, shape)
 
     def __call__(self, x):
+        print(f"TrTVAEEncoder.__call__ - Input shape: {x.shape}, dtype: {x.dtype}")
         self.load()  # Ensure engine is loaded
         
         model_inputs = {"x": x}
         batch_size = x.shape[0]
+        print(f"TrTVAEEncoder - batch_size: {batch_size}")
         
         # Handle batch splitting for dynamic profiles
         dims = self.engine.get_tensor_profile_shape(self.engine.get_tensor_name(0), 0)
         min_batch = dims[0][0]
         opt_batch = dims[1][0]
         max_batch = dims[2][0]
+        print(f"TrTVAEEncoder - Profile batches: min={min_batch}, opt={opt_batch}, max={max_batch}")
 
         curr_split_batch = 1
         for i in range(max_batch, min_batch - 1, -1):
             if batch_size % i == 0:
                 curr_split_batch = batch_size // i
                 break
+        print(f"TrTVAEEncoder - curr_split_batch: {curr_split_batch}")
 
         self.set_bindings_shape(model_inputs, curr_split_batch)
 
@@ -82,17 +86,21 @@ class TrTVAEEncoder:
         for k in model_inputs:
             data_type = self.engine.get_tensor_dtype(k)
             model_inputs_converted[k] = model_inputs[k].to(dtype=trt_datatype_to_torch(data_type))
+            print(f"TrTVAEEncoder - Input '{k}' converted to dtype: {trt_datatype_to_torch(data_type)}")
 
         # Get output tensor info
         output_binding_name = self.engine.get_tensor_name(len(model_inputs))
         out_shape = self.engine.get_tensor_shape(output_binding_name)
         out_shape = list(out_shape)
+        print(f"TrTVAEEncoder - Initial output shape from engine: {out_shape}")
 
         # Handle dynamic shapes
         for idx in range(len(out_shape)):
             if out_shape[idx] == -1:
-                if idx == 0:
+                if idx == 0:  # batch
                     out_shape[idx] = x.shape[0]
+                elif idx == 1:  # channels - VAE encoder outputs 4 channels (latents)
+                    out_shape[idx] = 4
                 elif idx == 2:  # height
                     out_shape[idx] = x.shape[2] // 8  # VAE encoder downsamples by 8
                 elif idx == 3:  # width
@@ -102,11 +110,13 @@ class TrTVAEEncoder:
             else:
                 if idx == 0:
                     out_shape[idx] *= curr_split_batch
+        print(f"TrTVAEEncoder - Final output shape after dynamic handling: {out_shape}")
 
         out = torch.empty(out_shape,
                           device=x.device,
                           dtype=trt_datatype_to_torch(self.engine.get_tensor_dtype(output_binding_name)))
         model_inputs_converted[output_binding_name] = out
+        print(f"TrTVAEEncoder - Created output tensor: shape={out.shape}, dtype={out.dtype}")
 
         # Execute inference
         stream = torch.cuda.default_stream(x.device)
@@ -116,6 +126,7 @@ class TrTVAEEncoder:
                 self.context.set_tensor_address(k, tensor[(tensor.shape[0] // curr_split_batch) * i:].data_ptr())
             self.context.execute_async_v3(stream_handle=stream.cuda_stream)
 
+        print(f"TrTVAEEncoder - Inference complete, returning tensor: {out.shape}")
         return out
 
     def unload(self):
@@ -159,22 +170,26 @@ class TrTVAEDecoder:
             self.context.set_input_shape(k, shape)
 
     def __call__(self, x):
+        print(f"TrTVAEDecoder.__call__ - Input shape: {x.shape}, dtype: {x.dtype}")
         self.load()  # Ensure engine is loaded
         
         model_inputs = {"x": x}
         batch_size = x.shape[0]
+        print(f"TrTVAEDecoder - batch_size: {batch_size}")
         
         # Handle batch splitting for dynamic profiles
         dims = self.engine.get_tensor_profile_shape(self.engine.get_tensor_name(0), 0)
         min_batch = dims[0][0]
         opt_batch = dims[1][0]
         max_batch = dims[2][0]
+        print(f"TrTVAEDecoder - Profile batches: min={min_batch}, opt={opt_batch}, max={max_batch}")
 
         curr_split_batch = 1
         for i in range(max_batch, min_batch - 1, -1):
             if batch_size % i == 0:
                 curr_split_batch = batch_size // i
                 break
+        print(f"TrTVAEDecoder - curr_split_batch: {curr_split_batch}")
 
         self.set_bindings_shape(model_inputs, curr_split_batch)
 
@@ -183,17 +198,21 @@ class TrTVAEDecoder:
         for k in model_inputs:
             data_type = self.engine.get_tensor_dtype(k)
             model_inputs_converted[k] = model_inputs[k].to(dtype=trt_datatype_to_torch(data_type))
+            print(f"TrTVAEDecoder - Input '{k}' converted to dtype: {trt_datatype_to_torch(data_type)}")
 
         # Get output tensor info
         output_binding_name = self.engine.get_tensor_name(len(model_inputs))
         out_shape = self.engine.get_tensor_shape(output_binding_name)
         out_shape = list(out_shape)
+        print(f"TrTVAEDecoder - Initial output shape from engine: {out_shape}")
 
         # Handle dynamic shapes
         for idx in range(len(out_shape)):
             if out_shape[idx] == -1:
-                if idx == 0:
+                if idx == 0:  # batch
                     out_shape[idx] = x.shape[0]
+                elif idx == 1:  # channels - VAE decoder outputs 3 channels (RGB)
+                    out_shape[idx] = 3
                 elif idx == 2:  # height
                     out_shape[idx] = x.shape[2] * 8  # VAE decoder upsamples by 8
                 elif idx == 3:  # width
@@ -203,11 +222,13 @@ class TrTVAEDecoder:
             else:
                 if idx == 0:
                     out_shape[idx] *= curr_split_batch
+        print(f"TrTVAEDecoder - Final output shape after dynamic handling: {out_shape}")
 
         out = torch.empty(out_shape,
                           device=x.device,
                           dtype=trt_datatype_to_torch(self.engine.get_tensor_dtype(output_binding_name)))
         model_inputs_converted[output_binding_name] = out
+        print(f"TrTVAEDecoder - Created output tensor: shape={out.shape}, dtype={out.dtype}")
 
         # Execute inference
         stream = torch.cuda.default_stream(x.device)
@@ -217,6 +238,7 @@ class TrTVAEDecoder:
                 self.context.set_tensor_address(k, tensor[(tensor.shape[0] // curr_split_batch) * i:].data_ptr())
             self.context.execute_async_v3(stream_handle=stream.cuda_stream)
 
+        print(f"TrTVAEDecoder - Inference complete, returning tensor: {out.shape}")
         return out
 
     def unload(self):
@@ -270,6 +292,7 @@ class TrTVAE:
         
         # Call TensorRT decoder
         images = self.decoder(x)
+        print(f"TensorRT VAE Decoder output - shape: {images.shape}, dtype: {images.dtype}, device: {images.device}")
         
         # Convert output from [-1, 1] to [0, 1] range
         images = (images + 1.0) / 2.0
