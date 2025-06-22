@@ -298,6 +298,10 @@ class TrTVAE:
         images = (images + 1.0) / 2.0
         images = torch.clamp(images, 0.0, 1.0)
         
+        # Convert from (batch, channels, height, width) to (batch, height, width, channels) for ComfyUI
+        images = images.permute(0, 2, 3, 1)
+        print(f"After permute to BHWC format: {images.shape}")
+        
         # Convert to float32 for compatibility with ComfyUI image processing
         images = images.to(dtype=torch.float32)
         
