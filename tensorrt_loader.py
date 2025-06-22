@@ -9,9 +9,9 @@ import comfy.model_management
 import comfy.model_patcher
 import comfy.supported_models
 import folder_paths
-from utils.tensorrt_error_recorder import TrTErrorRecorder
-from models.unet import TrTUnet
-from models.trtModel import TrTModelManageable
+from .utils.tensorrt_error_recorder import TrTErrorRecorder
+from .models.unet import TrTUnet
+from .models.trtModel import TrTModelManageable
 
 if "tensorrt" in folder_paths.folder_names_and_paths:
     folder_paths.folder_names_and_paths["tensorrt"][0].append(

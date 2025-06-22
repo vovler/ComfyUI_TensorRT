@@ -1,15 +1,11 @@
 import torch
 import os
 import tensorrt as trt
-from utils.tensorrt_error_recorder import TrTErrorRecorder
 import torch
-from trtModel import TrTModelManageable
-from utils.trt_datatype_to_torch import trt_datatype_to_torch
-from utils.tensorrt_error_recorder import TrTErrorRecorder, check_for_trt_errors
+from .trtModel import TrTModelManageable
+from ..utils.trt_datatype_to_torch import trt_datatype_to_torch
+from ..utils.tensorrt_error_recorder import check_for_trt_errors
 
-trt.init_libnvinfer_plugins(None, "")
-logger = trt.Logger(trt.Logger.INFO)
-runtime = trt.Runtime(logger)
 
 class SdUnet(torch.nn.Module):
     def __init__(self, unet: torch.nn.Module, transformer_options, extras):
@@ -41,10 +37,10 @@ class TrTUnet(TrTModelManageable):
         if self.engine is not None or self.context is not None:
             return
         with open(self.engine_path, "rb") as f:
-            self.engine = runtime.deserialize_cuda_engine(f.read())
-            check_for_trt_errors(runtime)
+            self.engine = self.runtime.deserialize_cuda_engine(f.read())
+            check_for_trt_errors(self.runtime)
             self.context = self.engine.create_execution_context()
-            check_for_trt_errors(runtime)
+            check_for_trt_errors(self.runtime)
 
     @property
     def size(self) -> int:
