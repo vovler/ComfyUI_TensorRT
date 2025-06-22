@@ -70,6 +70,8 @@ class TensorRTLoader:
             conf = comfy.supported_models.SDXL({"adm_in_channels": 2816})
             conf.unet_config["disable_unet_model_creation"] = True
             model = comfy.model_base.SDXL(conf)
+            # Set the diffusion_model attribute to our TensorRT UNet since we disabled automatic creation
+            model.diffusion_model = unet
         else:
             raise ValueError(f"Model type {model_type} not supported")
         
