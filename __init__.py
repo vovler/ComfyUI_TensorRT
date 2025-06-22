@@ -1,6 +1,6 @@
-from .tensorrt_convert import DYNAMIC_TRT_MODEL_CONVERSION
-from .tensorrt_convert import STATIC_TRT_MODEL_CONVERSION
-from .tensorrt_loader import TensorRTLoader
+from tensorrt_convert import DYNAMIC_TRT_MODEL_CONVERSION
+from tensorrt_convert import STATIC_TRT_MODEL_CONVERSION
+from tensorrt_loader import TensorRTLoader
 
 NODE_CLASS_MAPPINGS = {
         "DYNAMIC_TRT_MODEL_CONVERSION": DYNAMIC_TRT_MODEL_CONVERSION,

@@ -8,9 +8,9 @@ import folder_paths
 from tqdm import tqdm
 import comfy
 from typing import Any, Optional
-from .utils.tensorrt_error_recorder import TrTErrorRecorder
-from .utils.tqdm_progress_monitor import TQDMProgressMonitor
-from .models.unet import SdUnet
+from utils.tensorrt_error_recorder import TrTErrorRecorder
+from utils.tqdm_progress_monitor import TQDMProgressMonitor
+from models.unet import SdUnet
 
 
 # add output directory to tensorrt search path

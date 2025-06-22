@@ -1,11 +1,11 @@
 import torch
 import os
 import tensorrt as trt
-from ..utils.tensorrt_error_recorder import TrTErrorRecorder
+from utils.tensorrt_error_recorder import TrTErrorRecorder
 import torch
-from .trtModel import TrTModelManageable
-from ..utils.trt_datatype_to_torch import trt_datatype_to_torch
-from ..utils.tensorrt_error_recorder import TrTErrorRecorder, check_for_trt_errors
+from trtModel import TrTModelManageable
+from utils.trt_datatype_to_torch import trt_datatype_to_torch
+from utils.tensorrt_error_recorder import TrTErrorRecorder, check_for_trt_errors
 
 trt.init_libnvinfer_plugins(None, "")
 logger = trt.Logger(trt.Logger.INFO)
