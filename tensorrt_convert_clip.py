@@ -34,14 +34,28 @@ class CLIPWrapper(torch.nn.Module):
         self.is_clip_l = is_clip_l
 
     def forward(self, tokens):
+        # Create properly formatted tokens for CLIP model
+        # CLIP expects tokens in format: [[tokens, weights], ...]
+        batch_size, seq_len = tokens.shape
+        
+        # Convert raw tokens to the format expected by ComfyUI CLIP
+        # Each batch item should be a list of [tokens, weights] pairs
+        token_weight_pairs = []
+        for b in range(batch_size):
+            # Convert tokens to list and create weights (all 1.0)
+            token_list = tokens[b].cpu().tolist()
+            weights = [1.0] * seq_len
+            token_weight_pairs.append((token_list, weights))
+        
+        # Use encode_token_weights method instead of direct forward call
         if self.is_clip_l:
             # For CLIP-L, we want the last hidden state output
-            out = self.clip(tokens)
-            return out[0]  # Return hidden states
+            out, pooled = self.clip.encode_token_weights(token_weight_pairs)
+            return out  # Return hidden states only
         else:
             # For CLIP-G, we want both hidden states and pooled output
-            out = self.clip(tokens)
-            return out[0], out[1]  # Return hidden states and pooled output
+            out, pooled = self.clip.encode_token_weights(token_weight_pairs)
+            return out, pooled  # Return hidden states and pooled output
 
 
 class TRT_CLIP_CONVERSION_BASE:
@@ -142,11 +156,18 @@ class TRT_CLIP_CONVERSION_BASE:
             }
 
         # Create input tensor for ONNX export (integer tokens)
-        input_tensor = torch.zeros(
+        # Use realistic token values instead of all zeros to avoid issues
+        # Token 0 is typically padding, 1 is start token, 2 is end token
+        input_tensor = torch.ones(
             inputs_shapes_opt,
             device=device,
             dtype=torch.long,  # CLIP tokens are integers
         )
+        # Set start token (typically 1) at the beginning of each sequence
+        input_tensor[:, 0] = 1
+        # Set some variety in the middle tokens to make it more realistic
+        for i in range(1, min(inputs_shapes_opt[1], 10)):
+            input_tensor[:, i] = i + 100  # Use tokens in a safe range
 
         os.makedirs(os.path.dirname(output_onnx), exist_ok=True)
         
