@@ -6,9 +6,12 @@ import comfy.model_management
 import tensorrt as trt
 import folder_paths
 from tqdm import tqdm
+import comfy
+from typing import Any, Optional
+from .utils.tensorrt_error_recorder import TrTErrorRecorder
+from .utils.tqdm_progress_monitor import TQDMProgressMonitor
+from .models.unet import SdUnet
 
-# TODO:
-# Make it more generic: less model specific code
 
 # add output directory to tensorrt search path
 if "tensorrt" in folder_paths.folder_names_and_paths:
@@ -21,76 +24,6 @@ else:
         [os.path.join(folder_paths.get_output_directory(), "tensorrt")],
         {".engine"},
     )
-
-class TQDMProgressMonitor(trt.IProgressMonitor):
-    def __init__(self):
-        trt.IProgressMonitor.__init__(self)
-        self._active_phases = {}
-        self._step_result = True
-        self.max_indent = 5
-
-    def phase_start(self, phase_name, parent_phase, num_steps):
-        leave = False
-        try:
-            if parent_phase is not None:
-                nbIndents = (
-                    self._active_phases.get(parent_phase, {}).get(
-                        "nbIndents", self.max_indent
-                    )
-                    + 1
-                )
-                if nbIndents >= self.max_indent:
-                    return
-            else:
-                nbIndents = 0
-                leave = True
-            self._active_phases[phase_name] = {
-                "tq": tqdm(
-                    total=num_steps, desc=phase_name, leave=leave, position=nbIndents
-                ),
-                "nbIndents": nbIndents,
-                "parent_phase": parent_phase,
-            }
-        except KeyboardInterrupt:
-            # The phase_start callback cannot directly cancel the build, so request the cancellation from within step_complete.
-            _step_result = False
-
-    def phase_finish(self, phase_name):
-        try:
-            if phase_name in self._active_phases.keys():
-                self._active_phases[phase_name]["tq"].update(
-                    self._active_phases[phase_name]["tq"].total
-                    - self._active_phases[phase_name]["tq"].n
-                )
-
-                parent_phase = self._active_phases[phase_name].get("parent_phase", None)
-                while parent_phase is not None:
-                    self._active_phases[parent_phase]["tq"].refresh()
-                    parent_phase = self._active_phases[parent_phase].get(
-                        "parent_phase", None
-                    )
-                if (
-                    self._active_phases[phase_name]["parent_phase"]
-                    in self._active_phases.keys()
-                ):
-                    self._active_phases[
-                        self._active_phases[phase_name]["parent_phase"]
-                    ]["tq"].refresh()
-                del self._active_phases[phase_name]
-            pass
-        except KeyboardInterrupt:
-            _step_result = False
-
-    def step_complete(self, phase_name, step):
-        try:
-            if phase_name in self._active_phases.keys():
-                self._active_phases[phase_name]["tq"].update(
-                    step - self._active_phases[phase_name]["tq"].n
-                )
-            return self._step_result
-        except KeyboardInterrupt:
-            # There is no need to propagate this exception to TensorRT. We can simply cancel the build.
-            return False
         
 
 class TRT_MODEL_CONVERSION_BASE:
@@ -107,7 +40,7 @@ class TRT_MODEL_CONVERSION_BASE:
     CATEGORY = "TensorRT"
 
     @classmethod
-    def INPUT_TYPES(s):
+    def INPUT_TYPES(cls):
         raise NotImplementedError
 
     # Sets up the builder to use the timing cache file, and creates it if it does not already exist
@@ -164,118 +97,65 @@ class TRT_MODEL_CONVERSION_BASE:
         extra_input = {}
         dtype = torch.float16
 
-        if isinstance(model.model, comfy.model_base.SD3): #SD3
-            context_embedder_config = model.model.model_config.unet_config.get("context_embedder_config", None)
-            if context_embedder_config is not None:
-                context_dim = context_embedder_config.get("params", {}).get("in_features", None)
-                context_len = 154 #NOTE: SD3 can have 77 or 154 depending on which text encoders are used, this is why context_len_min stays 77
-        elif isinstance(model.model, comfy.model_base.AuraFlow):
-            context_dim = 2048
-            context_len_min = 256
-            context_len = 256
-        elif isinstance(model.model, comfy.model_base.Flux):
-            context_dim = model.model.model_config.unet_config.get("context_in_dim", None)
-            context_len_min = 256
-            context_len = 256
-            y_dim = model.model.model_config.unet_config.get("vec_in_dim", None)
-            extra_input = {"guidance": ()}
-            dtype = torch.bfloat16
+        if context_dim is None:
+            raise Exception("Context dimension is not set in the model config")
 
-        if context_dim is not None:
-            input_names = ["x", "timesteps", "context"]
-            output_names = ["h"]
+        
+        input_names = ["x", "timesteps", "context"]
+        output_names = ["h"]
 
-            dynamic_axes = {
-                "x": {0: "batch", 2: "height", 3: "width"},
-                "timesteps": {0: "batch"},
-                "context": {0: "batch", 1: "num_embeds"},
-            }
+        dynamic_axes = {
+            "x": {0: "batch", 2: "height", 3: "width"},
+            "timesteps": {0: "batch"},
+            "context": {0: "batch", 1: "num_embeds"},
+        }
 
-            transformer_options = model.model_options['transformer_options'].copy()
-            if model.model.model_config.unet_config.get(
-                "use_temporal_resblock", False
-            ):  # SVD
-                batch_size_min = num_video_frames * batch_size_min
-                batch_size_opt = num_video_frames * batch_size_opt
-                batch_size_max = num_video_frames * batch_size_max
+        transformer_options = model.model_options['transformer_options'].copy()
 
-                class UNET(torch.nn.Module):
-                    def forward(self, x, timesteps, context, y):
-                        return self.unet(
-                            x,
-                            timesteps,
-                            context,
-                            y,
-                            num_video_frames=self.num_video_frames,
-                            transformer_options=self.transformer_options,
-                        )
+        unet = SdUnet(unet, transformer_options, input_names[3:])
 
-                svd_unet = UNET()
-                svd_unet.num_video_frames = num_video_frames
-                svd_unet.unet = unet
-                svd_unet.transformer_options = transformer_options
-                unet = svd_unet
-                context_len_min = context_len = 1
-            else:
-                class UNET(torch.nn.Module):
-                    def forward(self, x, timesteps, context, *args):
-                        extras = input_names[3:]
-                        extra_args = {}
-                        for i in range(len(extras)):
-                            extra_args[extras[i]] = args[i]
-                        return self.unet(x, timesteps, context, transformer_options=self.transformer_options, **extra_args)
+        input_channels = model.model.model_config.unet_config.get("in_channels", 4)
 
-                _unet = UNET()
-                _unet.unet = unet
-                _unet.transformer_options = transformer_options
-                unet = _unet
-
-            input_channels = model.model.model_config.unet_config.get("in_channels", 4)
-
-            inputs_shapes_min = (
+        inputs_shapes_min = (
                 (batch_size_min, input_channels, height_min // 8, width_min // 8),
                 (batch_size_min,),
                 (batch_size_min, context_len_min * context_min, context_dim),
-            )
-            inputs_shapes_opt = (
+        )
+        inputs_shapes_opt = (
                 (batch_size_opt, input_channels, height_opt // 8, width_opt // 8),
                 (batch_size_opt,),
                 (batch_size_opt, context_len * context_opt, context_dim),
-            )
-            inputs_shapes_max = (
+        )
+        inputs_shapes_max = (
                 (batch_size_max, input_channels, height_max // 8, width_max // 8),
                 (batch_size_max,),
                 (batch_size_max, context_len * context_max, context_dim),
+        )
+
+        if y_dim > 0:
+            input_names.append("y")
+            dynamic_axes["y"] = {0: "batch"}
+            inputs_shapes_min += ((batch_size_min, y_dim),)
+            inputs_shapes_opt += ((batch_size_opt, y_dim),)
+            inputs_shapes_max += ((batch_size_max, y_dim),)
+
+        for k in extra_input:
+            input_names.append(k)
+            dynamic_axes[k] = {0: "batch"}
+            inputs_shapes_min += ((batch_size_min,) + extra_input[k],)
+            inputs_shapes_opt += ((batch_size_opt,) + extra_input[k],)
+            inputs_shapes_max += ((batch_size_max,) + extra_input[k],)
+
+
+        inputs = ()
+        for shape in inputs_shapes_opt:
+            inputs += (
+                torch.zeros(
+                    shape,
+                    device=comfy.model_management.get_torch_device(),
+                    dtype=dtype,
+                ),
             )
-
-            if y_dim > 0:
-                input_names.append("y")
-                dynamic_axes["y"] = {0: "batch"}
-                inputs_shapes_min += ((batch_size_min, y_dim),)
-                inputs_shapes_opt += ((batch_size_opt, y_dim),)
-                inputs_shapes_max += ((batch_size_max, y_dim),)
-
-            for k in extra_input:
-                input_names.append(k)
-                dynamic_axes[k] = {0: "batch"}
-                inputs_shapes_min += ((batch_size_min,) + extra_input[k],)
-                inputs_shapes_opt += ((batch_size_opt,) + extra_input[k],)
-                inputs_shapes_max += ((batch_size_max,) + extra_input[k],)
-
-
-            inputs = ()
-            for shape in inputs_shapes_opt:
-                inputs += (
-                    torch.zeros(
-                        shape,
-                        device=comfy.model_management.get_torch_device(),
-                        dtype=dtype,
-                    ),
-                )
-
-        else:
-            print("ERROR: model not supported.")
-            return ()
 
         os.makedirs(os.path.dirname(output_onnx), exist_ok=True)
         torch.onnx.export(
@@ -295,6 +175,7 @@ class TRT_MODEL_CONVERSION_BASE:
         # TRT conversion starts here
         logger = trt.Logger(trt.Logger.INFO)
         builder = trt.Builder(logger)
+        builder.error_recorder = TrTErrorRecorder()
 
         network = builder.create_network(
             1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
@@ -315,15 +196,21 @@ class TRT_MODEL_CONVERSION_BASE:
 
         prefix_encode = ""
         for k in range(len(input_names)):
-            min_shape = inputs_shapes_min[k]
-            opt_shape = inputs_shapes_opt[k]
-            max_shape = inputs_shapes_max[k]
+            
+            min_shape_list = [int(x) for x in inputs_shapes_min[k]]
+            opt_shape_list = [int(x) for x in inputs_shapes_opt[k]]
+            max_shape_list = [int(x) for x in inputs_shapes_max[k]]
+            
+            min_shape = trt.Dims(min_shape_list)
+            opt_shape = trt.Dims(opt_shape_list)
+            max_shape = trt.Dims(max_shape_list)
+            
             profile.set_shape(input_names[k], min_shape, opt_shape, max_shape)
 
             # Encode shapes to filename
             encode = lambda a: ".".join(map(lambda x: str(x), a))
             prefix_encode += "{}#{}#{}#{};".format(
-                input_names[k], encode(min_shape), encode(opt_shape), encode(max_shape)
+                input_names[k], encode(min_shape_list), encode(opt_shape_list), encode(max_shape_list)
             )
 
         if dtype == torch.float16:
@@ -392,7 +279,7 @@ class DYNAMIC_TRT_MODEL_CONVERSION(TRT_MODEL_CONVERSION_BASE):
         super(DYNAMIC_TRT_MODEL_CONVERSION, self).__init__()
 
     @classmethod
-    def INPUT_TYPES(s):
+    def INPUT_TYPES(cls):
         return {
             "required": {
                 "model": ("MODEL",),
@@ -560,7 +447,7 @@ class STATIC_TRT_MODEL_CONVERSION(TRT_MODEL_CONVERSION_BASE):
         super(STATIC_TRT_MODEL_CONVERSION, self).__init__()
 
     @classmethod
-    def INPUT_TYPES(s):
+    def INPUT_TYPES(cls):
         return {
             "required": {
                 "model": ("MODEL",),
