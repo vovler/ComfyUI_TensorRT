@@ -115,70 +115,32 @@ class TRT_CLIP_CONVERSION_BASE:
             "pooled_output": {0: "batch"},
         }
 
-        # Create preprocessed tokens as tensor directly
-        # Instead of using the complex token processing, create tensor input directly
+        # Create preprocessed tokens as simple integer lists
         batch_size, seq_len = inputs_shapes_opt
-        
-        # Create token tensor directly (bypassing the complex token processing)
-        token_tensor = torch.zeros((batch_size, seq_len), dtype=torch.long, device=device)
+        preprocessed_tokens = []
         for b in range(batch_size):
-            token_tensor[b, 0] = 49406  # start token
-            token_tensor[b, 1:-1] = 49407  # pad tokens  
-            token_tensor[b, -1] = 49407  # end token
-
-        # Get embeddings directly from the transformer
-        input_embeddings = clip_component.transformer.get_input_embeddings()
-        embedded_tokens = input_embeddings(token_tensor, out_dtype=torch.float32)
+            token_sequence = []
+            for s in range(seq_len):
+                if s == 0:
+                    token_sequence.append(49406)  # start token
+                elif s == seq_len - 1:
+                    token_sequence.append(49407)  # end token
+                else:
+                    token_sequence.append(49407)  # pad tokens
+            preprocessed_tokens.append(token_sequence)
 
         os.makedirs(os.path.dirname(output_onnx), exist_ok=True)
         
-        # Create a wrapper model that takes embeddings directly
-        class ClipEmbedWrapper(torch.nn.Module):
-            def __init__(self, clip_model):
-                super().__init__()
-                self.clip_model = clip_model
-                
-            def forward(self, embeds):
-                # Call transformer directly with embeddings
-                num_tokens = [embeds.shape[1]] * embeds.shape[0]
-                outputs = self.clip_model.transformer(
-                    None, 
-                    None,  # attention_mask_model
-                    embeds=embeds, 
-                    num_tokens=num_tokens, 
-                    intermediate_output=None,
-                    final_layer_norm_intermediate=self.clip_model.layer_norm_hidden_state,
-                    dtype=torch.float32
-                )
-                
-                z = outputs[0].float()
-                pooled_output = None
-                if len(outputs) >= 3 and outputs[2] is not None:
-                    pooled_output = outputs[2].float()
-                elif len(outputs) >= 4 and outputs[3] is not None:
-                    pooled_output = outputs[3].float()
-                
-                if pooled_output is None:
-                    pooled_output = torch.zeros((z.shape[0], z.shape[-1]), dtype=z.dtype, device=z.device)
-                
-                return z, pooled_output
-
-        wrapper_model = ClipEmbedWrapper(clip_component)
-        
         with torch.no_grad():
             torch.onnx.export(
-                wrapper_model,
-                (embedded_tokens,),
+                model_to_export,
+                (preprocessed_tokens,),
                 output_onnx,
                 verbose=False,
-                input_names=["embeddings"],
+                input_names=input_names,
                 output_names=output_names,
                 opset_version=17,
-                dynamic_axes={
-                    "embeddings": {0: "batch", 1: "sequence"},
-                    "hidden_states": {0: "batch", 1: "sequence"},
-                    "pooled_output": {0: "batch"},
-                },
+                dynamic_axes=dynamic_axes,
             )
 
         comfy.model_management.unload_all_models()
@@ -206,17 +168,16 @@ class TRT_CLIP_CONVERSION_BASE:
         self._setup_timing_cache(config)
         config.progress_monitor = TQDMProgressMonitor()
 
-        # Set up optimization profile - embeddings have shape [batch, sequence, embedding_dim]
-        embedding_dim = embedded_tokens.shape[-1]  # Get embedding dimension from the actual tensor
-        min_shape_list = [int(x) for x in inputs_shapes_min] + [embedding_dim]
-        opt_shape_list = [int(x) for x in inputs_shapes_opt] + [embedding_dim]
-        max_shape_list = [int(x) for x in inputs_shapes_max] + [embedding_dim]
+        # Set up optimization profile
+        min_shape_list = [int(x) for x in inputs_shapes_min]
+        opt_shape_list = [int(x) for x in inputs_shapes_opt]
+        max_shape_list = [int(x) for x in inputs_shapes_max]
         
         min_shape = trt.Dims(min_shape_list)
         opt_shape = trt.Dims(opt_shape_list)
         max_shape = trt.Dims(max_shape_list)
         
-        profile.set_shape("embeddings", min_shape, opt_shape, max_shape)
+        profile.set_shape("tokens", min_shape, opt_shape, max_shape)
 
         config.set_flag(trt.BuilderFlag.FP16)
         config.add_optimization_profile(profile)
