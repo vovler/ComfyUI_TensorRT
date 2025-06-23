@@ -63,12 +63,23 @@ class TrTCLIPL:
         print(f"TrTCLIPL.__call__ - Input shape: {tokens.shape}, dtype: {tokens.dtype}")
         self.load()  # Ensure engine is loaded
         
-        model_inputs = {"tokens": tokens}
+        # Debug: Print all tensor names in the engine
+        print(f"TrTCLIPL - Engine has {self.engine.num_io_tensors} tensors:")
+        for i in range(self.engine.num_io_tensors):
+            tensor_name = self.engine.get_tensor_name(i)
+            tensor_shape = self.engine.get_tensor_shape(tensor_name)
+            is_input = self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT
+            print(f"  {i}: {tensor_name} - {'INPUT' if is_input else 'OUTPUT'} - shape: {tensor_shape}")
+        
+        # Use the actual input tensor name from the engine
+        input_tensor_name = self.engine.get_tensor_name(0)  # First tensor should be input
+        model_inputs = {input_tensor_name: tokens}
         batch_size = tokens.shape[0]
+        print(f"TrTCLIPL - Using input tensor name: {input_tensor_name}")
         print(f"TrTCLIPL - batch_size: {batch_size}")
         
         # Handle batch splitting for dynamic profiles
-        dims = self.engine.get_tensor_profile_shape(self.engine.get_tensor_name(0), 0)
+        dims = self.engine.get_tensor_profile_shape(input_tensor_name, 0)
         min_batch = dims[0][0]
         opt_batch = dims[1][0]
         max_batch = dims[2][0]
@@ -90,10 +101,20 @@ class TrTCLIPL:
             model_inputs_converted[k] = model_inputs[k].to(dtype=trt_datatype_to_torch(data_type))
             print(f"TrTCLIPL - Input '{k}' converted to dtype: {trt_datatype_to_torch(data_type)}")
 
-        # Get output tensor info
-        output_binding_name = self.engine.get_tensor_name(len(model_inputs))
+        # Get output tensor info - find the output tensor
+        output_binding_name = None
+        for i in range(self.engine.num_io_tensors):
+            tensor_name = self.engine.get_tensor_name(i)
+            if self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.OUTPUT:
+                output_binding_name = tensor_name
+                break
+        
+        if output_binding_name is None:
+            raise RuntimeError("No output tensor found in TensorRT engine")
+            
         out_shape = self.engine.get_tensor_shape(output_binding_name)
         out_shape = list(out_shape)
+        print(f"TrTCLIPL - Using output tensor name: {output_binding_name}")
         print(f"TrTCLIPL - Initial output shape from engine: {out_shape}")
 
         # Handle dynamic shapes
@@ -175,12 +196,23 @@ class TrTCLIPG:
         print(f"TrTCLIPG.__call__ - Input shape: {tokens.shape}, dtype: {tokens.dtype}")
         self.load()  # Ensure engine is loaded
         
-        model_inputs = {"tokens": tokens}
+        # Debug: Print all tensor names in the engine
+        print(f"TrTCLIPG - Engine has {self.engine.num_io_tensors} tensors:")
+        for i in range(self.engine.num_io_tensors):
+            tensor_name = self.engine.get_tensor_name(i)
+            tensor_shape = self.engine.get_tensor_shape(tensor_name)
+            is_input = self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT
+            print(f"  {i}: {tensor_name} - {'INPUT' if is_input else 'OUTPUT'} - shape: {tensor_shape}")
+        
+        # Use the actual input tensor name from the engine
+        input_tensor_name = self.engine.get_tensor_name(0)  # First tensor should be input
+        model_inputs = {input_tensor_name: tokens}
         batch_size = tokens.shape[0]
+        print(f"TrTCLIPG - Using input tensor name: {input_tensor_name}")
         print(f"TrTCLIPG - batch_size: {batch_size}")
         
         # Handle batch splitting for dynamic profiles
-        dims = self.engine.get_tensor_profile_shape(self.engine.get_tensor_name(0), 0)
+        dims = self.engine.get_tensor_profile_shape(input_tensor_name, 0)
         min_batch = dims[0][0]
         opt_batch = dims[1][0]
         max_batch = dims[2][0]
@@ -203,8 +235,18 @@ class TrTCLIPG:
             print(f"TrTCLIPG - Input '{k}' converted to dtype: {trt_datatype_to_torch(data_type)}")
 
         # Get output tensor info - CLIP-G has 2 outputs (hidden_states, pooled_output)
-        hidden_states_name = self.engine.get_tensor_name(len(model_inputs))
-        pooled_output_name = self.engine.get_tensor_name(len(model_inputs) + 1)
+        # Find output tensors dynamically
+        output_tensors = []
+        for i in range(self.engine.num_io_tensors):
+            tensor_name = self.engine.get_tensor_name(i)
+            if self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.OUTPUT:
+                output_tensors.append(tensor_name)
+        
+        if len(output_tensors) < 2:
+            raise RuntimeError(f"Expected 2 output tensors for CLIP-G, found {len(output_tensors)}")
+            
+        hidden_states_name = output_tensors[0]  # First output is hidden states
+        pooled_output_name = output_tensors[1]  # Second output is pooled output
         
         hidden_shape = self.engine.get_tensor_shape(hidden_states_name)
         pooled_shape = self.engine.get_tensor_shape(pooled_output_name)
@@ -392,45 +434,43 @@ class TrTCLIP(torch.nn.Module):
             if hasattr(item, '__len__') and len(item) > 0:
                 print(f"DEBUG: Item {i} first element: type={type(item[0])}, value={item[0] if not hasattr(item[0], '__len__') or len(str(item[0])) < 100 else str(item[0])[:100]}")
         
-        # Handle different token weight pair formats
-        # ComfyUI can return various formats: (tokens, weights), (tokens, weights, word_ids), etc.
-        max_length = 0
+        # Handle ComfyUI token weight pairs format
+        # Each item in token_weight_pairs is a list of (token_id, weight) tuples
+        max_length = 77  # Force CLIP standard length
+        
         for i, item in enumerate(token_weight_pairs):
-            try:
-                if isinstance(item, (list, tuple)) and len(item) >= 1:
-                    # First element should be tokens
-                    tokens = item[0]
-                    if isinstance(tokens, (list, tuple)):
-                        max_length = max(max_length, len(tokens))
-                        print(f"DEBUG: Item {i} tokens length: {len(tokens)}")
-                    else:
-                        print(f"DEBUG: Item {i} first element is not a list/tuple: {type(tokens)}")
-                else:
-                    print(f"DEBUG: Item {i} is not a list/tuple or is empty: {type(item)}")
-            except Exception as e:
-                print(f"DEBUG: Error processing item {i}: {e}")
-                    
-        max_length = min(max_length, 77)  # CLIP max length
-        if max_length == 0:
-            max_length = 77  # Default fallback
+            if isinstance(item, (list, tuple)):
+                print(f"DEBUG: Item {i} has {len(item)} token-weight pairs")
             
-        print(f"DEBUG: max_length = {max_length}")
+        print(f"DEBUG: Using fixed max_length = {max_length}")
         
         tokens_tensor = torch.zeros((batch_size, max_length), dtype=torch.long, device=self.device)
         
         for i, item in enumerate(token_weight_pairs):
             try:
-                if isinstance(item, (list, tuple)) and len(item) >= 1:
-                    # Extract tokens from the first element
-                    tokens = item[0]
-                    if isinstance(tokens, (list, tuple)):
-                        length = min(len(tokens), max_length)
-                        tokens_tensor[i, :length] = torch.tensor(tokens[:length], dtype=torch.long, device=self.device)
-                        print(f"DEBUG: Processed item {i}: extracted {length} tokens")
-                    else:
-                        print(f"DEBUG: Skipping item {i}: tokens not a list/tuple")
+                if isinstance(item, (list, tuple)):
+                    # Each item is a list of (token_id, weight) tuples
+                    tokens_list = []
+                    for token_weight in item:
+                        if isinstance(token_weight, (list, tuple)) and len(token_weight) >= 1:
+                            # Extract just the token ID (first element)
+                            token_id = token_weight[0]
+                            tokens_list.append(int(token_id))
+                        else:
+                            print(f"DEBUG: Unexpected token_weight format: {token_weight}")
+                    
+                    # Pad or truncate to max_length
+                    if len(tokens_list) < max_length:
+                        # Pad with zeros (or pad token)
+                        tokens_list.extend([0] * (max_length - len(tokens_list)))
+                    elif len(tokens_list) > max_length:
+                        # Truncate
+                        tokens_list = tokens_list[:max_length]
+                    
+                    tokens_tensor[i, :] = torch.tensor(tokens_list, dtype=torch.long, device=self.device)
+                    print(f"DEBUG: Processed item {i}: extracted {len(tokens_list)} tokens, padded to {max_length}")
                 else:
-                    print(f"DEBUG: Skipping item {i}: item not properly formatted")
+                    print(f"DEBUG: Skipping item {i}: item not a list/tuple")
             except Exception as e:
                 print(f"DEBUG: Error converting item {i}: {e}")
             
