@@ -114,14 +114,27 @@ class TRT_CLIP_CONVERSION_BASE:
             "pooled_output": {0: "batch"},
         }
 
-        input_tensor = torch.zeros(inputs_shapes_opt, device=device, dtype=torch.long)
+        # Create preprocessed tokens in ComfyUI format
+        # CLIP expects list of lists with (token_id, weight) tuples
+        batch_size, seq_len = inputs_shapes_opt
+        preprocessed_tokens = []
+        for b in range(batch_size):
+            token_sequence = []
+            for s in range(seq_len):
+                if s == 0:
+                    token_sequence.append((49406, 1.0))  # start token
+                elif s == seq_len - 1:
+                    token_sequence.append((49407, 1.0))  # end token  
+                else:
+                    token_sequence.append((49407, 1.0))  # pad tokens
+            preprocessed_tokens.append(token_sequence)
 
         os.makedirs(os.path.dirname(output_onnx), exist_ok=True)
         
         with torch.no_grad():
             torch.onnx.export(
                 model_to_export,
-                (input_tensor,),
+                (preprocessed_tokens,),
                 output_onnx,
                 verbose=False,
                 input_names=input_names,
