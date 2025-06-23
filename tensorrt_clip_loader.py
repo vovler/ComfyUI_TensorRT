@@ -127,6 +127,10 @@ class TrTCLIPL:
         hidden_shape = self.engine.get_tensor_shape(hidden_states_name)
         pooled_shape = self.engine.get_tensor_shape(pooled_output_name)
         
+        # DEBUG: Print raw shapes from engine
+        print(f"TrTCLIPL - RAW hidden_shape from engine: {hidden_shape} (type: {type(hidden_shape)})")
+        print(f"TrTCLIPL - RAW pooled_shape from engine: {pooled_shape} (type: {type(pooled_shape)})")
+
         hidden_shape = list(hidden_shape)
         pooled_shape = list(pooled_shape)
         
@@ -199,8 +203,8 @@ class TrTCLIPL:
             print("WARNING: Infinite values detected in TrTCLIPL pooled_out!")
         
         # Convert to float32 for compatibility and to avoid NaN issues with fp16
-        #hidden_out = hidden_out.to(dtype=torch.float32)
-        #pooled_out = pooled_out.to(dtype=torch.float32)
+        hidden_out = hidden_out.to(dtype=torch.float32)
+        pooled_out = pooled_out.to(dtype=torch.float32)
         
         return hidden_out, pooled_out
 
@@ -386,8 +390,8 @@ class TrTCLIPG:
             print("WARNING: Infinite values detected in TrTCLIPG pooled_out!")
         
         # Convert to float32 for compatibility and to avoid NaN issues with fp16
-        #hidden_out = hidden_out.to(dtype=torch.float32)
-        #pooled_out = pooled_out.to(dtype=torch.float32)
+        hidden_out = hidden_out.to(dtype=torch.float32)
+        pooled_out = pooled_out.to(dtype=torch.float32)
         
         return hidden_out, pooled_out
 
@@ -412,8 +416,8 @@ class TrTCLIPLWrapper:
         tokens = self._convert_token_weights_to_tokens(token_weight_pairs)
         tokens = tokens.to(device=torch.device('cuda'), dtype=torch.long)
         hidden_states, pooled_output = self.engine(tokens)
-        #return hidden_states.to(dtype=torch.float32), pooled_output.to(dtype=torch.float32)
-        return hidden_states, pooled_output
+        return hidden_states.to(dtype=torch.float32), pooled_output.to(dtype=torch.float32)
+        #return hidden_states, pooled_output
     
     @property
     def size(self):
@@ -457,8 +461,8 @@ class TrTCLIPGWrapper:
         tokens = self._convert_token_weights_to_tokens(token_weight_pairs)
         tokens = tokens.to(device=torch.device('cuda'), dtype=torch.long)
         hidden_states, pooled_output = self.engine(tokens)
-        #return hidden_states.to(dtype=torch.float32), pooled_output.to(dtype=torch.float32)
-        return hidden_states, pooled_output
+        return hidden_states.to(dtype=torch.float32), pooled_output.to(dtype=torch.float32)
+        #return hidden_states, pooled_output
     
     @property
     def size(self):
