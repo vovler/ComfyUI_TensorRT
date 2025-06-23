@@ -154,8 +154,8 @@ class TRT_CLIP_CONVERSION_BASE:
         token_tensor = torch.zeros((batch_size, seq_len), dtype=torch.long, device=device)
         for b in range(batch_size):
             token_tensor[b, 0] = start_token  # start token
-            token_tensor[b, 1:-1] = pad_token  # pad tokens  
-            token_tensor[b, -1] = end_token   # end token
+            token_tensor[b, 1] = end_token    # end token (immediately after start)
+            token_tensor[b, 2:] = pad_token   # pad tokens for the rest
 
         # Get embeddings directly from the transformer
         input_embeddings = clip_component.transformer.get_input_embeddings()
@@ -177,14 +177,24 @@ class TRT_CLIP_CONVERSION_BASE:
                 batch_size, seq_len = embeds.shape[:2]
                 attention_mask = torch.zeros((batch_size, seq_len), dtype=torch.long, device=embeds.device)
                 
-                # For our sequence: [start_token, end_token, pad, pad, pad...]
-                # Attention mask: [1, 1, 0, 0, 0...]
-                attention_mask[:, 0] = 1  # start token
-                attention_mask[:, 1] = 1  # end token (or first pad that acts as end)
-                # Rest remain 0 for padding
+                # For our sequence: [start_token, end_token, pad, pad, ..., pad]
+                # Attention mask: [1, 1, 0, 0, ..., 0]
+                attention_mask[:, 0] = 1   # start token
+                attention_mask[:, 1] = 1   # end token (immediately after start)
+                # Remaining positions remain 0 for padding
                 
                 # Calculate actual number of non-padded tokens per batch
                 num_tokens = attention_mask.sum(dim=1).tolist()
+                
+                # DEBUG: Print debug info about the forward pass
+                print(f"    🔍 ClipEmbedWrapper forward debug:")
+                print(f"        embeds shape: {embeds.shape}, dtype: {embeds.dtype}")
+                print(f"        attention_mask shape: {attention_mask.shape}, sum: {attention_mask.sum().item()}")
+                print(f"        num_tokens: {num_tokens}")
+                print(f"        layer: {self.clip_model.layer}")
+                print(f"        layer_idx: {self.clip_model.layer_idx}")
+                print(f"        enable_attention_masks: {self.clip_model.enable_attention_masks}")
+                print(f"        layer_norm_hidden_state: {self.clip_model.layer_norm_hidden_state}")
                 
                 # Handle layer selection like the original forward method
                 if self.clip_model.layer == "all":
@@ -197,6 +207,9 @@ class TRT_CLIP_CONVERSION_BASE:
                 if self.clip_model.enable_attention_masks:
                     attention_mask_model = attention_mask
                 
+                print(f"        intermediate_output: {intermediate_output}")
+                print(f"        attention_mask_model: {attention_mask_model}")
+                
                 outputs = self.clip_model.transformer(
                     None, 
                     attention_mask_model,
@@ -206,6 +219,16 @@ class TRT_CLIP_CONVERSION_BASE:
                     final_layer_norm_intermediate=self.clip_model.layer_norm_hidden_state,
                     dtype=torch.float32
                 )
+                
+                print(f"        outputs length: {len(outputs)}")
+                for i, output in enumerate(outputs):
+                    if output is not None:
+                        print(f"        output[{i}] shape: {output.shape}, dtype: {output.dtype}")
+                        print(f"        output[{i}] stats: min={output.min().item():.6f}, max={output.max().item():.6f}, mean={output.mean().item():.6f}")
+                        nan_count = torch.isnan(output).sum().item()
+                        print(f"        output[{i}] NaN count: {nan_count}/{output.numel()}")
+                    else:
+                        print(f"        output[{i}]: None")
                 
                 # Handle layer output selection like the original forward method
                 if self.clip_model.layer == "last":
@@ -405,8 +428,8 @@ class TRT_CLIP_CONVERSION_BASE:
                     test_tokens = torch.zeros((batch_size, seq_len), dtype=torch.long, device=device)
                     for b in range(batch_size):
                         test_tokens[b, 0] = start_token
-                        test_tokens[b, 1:-1] = pad_token
-                        test_tokens[b, -1] = end_token
+                        test_tokens[b, 1] = end_token
+                        test_tokens[b, 2:] = pad_token
                     
                     # Get embeddings
                     test_embeddings = input_embeddings(test_tokens, out_dtype=torch.float32)
@@ -437,10 +460,10 @@ class TRT_CLIP_CONVERSION_BASE:
             print(f"\n   🎯 Testing different token patterns...")
             token_patterns = [
                 ("start_only", [start_token] + [pad_token] * 76),
-                ("start_end", [start_token] + [pad_token] * 75 + [end_token]),
+                ("comfy_standard", [start_token, end_token] + [pad_token] * 75),
                 ("all_start", [start_token] * 77),
                 ("all_pad", [pad_token] * 77),
-                ("mixed", [start_token, end_token] + [pad_token] * 75),
+                ("all_end", [end_token] * 77),
             ]
             
             for pattern_name, token_list in token_patterns:
