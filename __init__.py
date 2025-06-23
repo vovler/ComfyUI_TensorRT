@@ -9,6 +9,8 @@ from .tensorrt_convert_vae import STATIC_TRT_VAE_ENCODER_CONVERSION
 from .tensorrt_convert_clip import STATIC_TRT_CLIP_L_CONVERSION
 from .tensorrt_convert_clip import STATIC_TRT_CLIP_G_CONVERSION
 from .tensorrt_clip_loader import TensorRTCLIPLoader
+from .conditioning_dummy import ConditioningDebugNode
+from .conditioning_dummy import CLIPTextEncodeDebug
 
 NODE_CLASS_MAPPINGS = {
         "DYNAMIC_TRT_MODEL_CONVERSION": DYNAMIC_TRT_MODEL_CONVERSION,
@@ -22,6 +24,8 @@ NODE_CLASS_MAPPINGS = {
         "STATIC_TRT_CLIP_L_CONVERSION": STATIC_TRT_CLIP_L_CONVERSION,
         "STATIC_TRT_CLIP_G_CONVERSION": STATIC_TRT_CLIP_G_CONVERSION,
         "TensorRTCLIPLoader": TensorRTCLIPLoader,
+        "ConditioningDebugNode": ConditioningDebugNode,
+        "CLIPTextEncodeDebug": CLIPTextEncodeDebug,
 }
 
 
@@ -37,6 +41,8 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "STATIC_TRT_CLIP_L_CONVERSION": "STATIC TRT CLIP-L CONVERSION",
     "STATIC_TRT_CLIP_G_CONVERSION": "STATIC TRT CLIP-G CONVERSION",
     "TensorRTCLIPLoader": "TensorRT CLIP Loader",
+    "ConditioningDebugNode": "Conditioning Debug",
+    "CLIPTextEncodeDebug": "CLIP Text Encode (Debug)",
 }
 
 __all__ = ['NODE_CLASS_MAPPINGS', 'NODE_DISPLAY_NAME_MAPPINGS']
