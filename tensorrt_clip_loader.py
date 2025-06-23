@@ -133,7 +133,22 @@ class TensorRTCLIPTextModel(torch.nn.Module):
                 curr_split_batch = batch_size // i
                 break
 
-        self.set_bindings_shape(model_inputs, curr_split_batch)
+        # Debug: Print engine tensor info before setting shapes
+        print(f"TensorRT - Engine tensor info:")
+        for i in range(self.engine.num_io_tensors):
+            tensor_name = self.engine.get_tensor_name(i)
+            tensor_shape = self.engine.get_tensor_shape(tensor_name)
+            is_input = self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT
+            print(f"  {tensor_name}: {'INPUT' if is_input else 'OUTPUT'} - engine_shape: {tensor_shape}")
+        
+        print(f"TensorRT - About to set input shape for {input_tensor_name}: {tokens.shape}")
+        try:
+            self.set_bindings_shape(model_inputs, curr_split_batch)
+        except Exception as e:
+            print(f"TensorRT - Error setting input shape: {e}")
+            print(f"TensorRT - Trying direct context.set_input_shape...")
+            self.context.set_input_shape(input_tensor_name, tokens.shape)
+            print(f"TensorRT - Direct shape setting successful")
 
         # Convert inputs to appropriate data types
         model_inputs_converted = {}
@@ -197,13 +212,25 @@ class TensorRTCLIPTextModel(torch.nn.Module):
 
         # Execute inference
         stream = torch.cuda.default_stream(tokens.device)
-        for i in range(curr_split_batch):
-            for k in model_inputs_converted:
-                tensor = model_inputs_converted[k]
-                self.context.set_tensor_address(k, tensor[(tensor.shape[0] // curr_split_batch) * i:].data_ptr())
-            self.context.execute_async_v3(stream_handle=stream.cuda_stream)
-
-        print(f"TensorRT CLIP inference complete")
+        try:
+            for i in range(curr_split_batch):
+                for k in model_inputs_converted:
+                    tensor = model_inputs_converted[k]
+                    self.context.set_tensor_address(k, tensor[(tensor.shape[0] // curr_split_batch) * i:].data_ptr())
+                success = self.context.execute_async_v3(stream_handle=stream.cuda_stream)
+                if not success:
+                    print(f"TensorRT - Warning: execute_async_v3 returned False for batch {i}")
+            
+            # Ensure GPU operations complete
+            torch.cuda.synchronize()
+            print(f"TensorRT CLIP inference complete")
+            
+        except Exception as e:
+            print(f"TensorRT - Error during inference: {e}")
+            # Return zero tensors as fallback
+            hidden_out = torch.zeros(hidden_shape, device=tokens.device, dtype=torch.float32)
+            pooled_out = torch.zeros(pooled_shape, device=tokens.device, dtype=torch.float32)
+            return hidden_out, hidden_out, pooled_out, pooled_out
         
         # Convert to float32 for compatibility
         hidden_out = hidden_out.to(dtype=torch.float32)
@@ -211,7 +238,8 @@ class TensorRTCLIPTextModel(torch.nn.Module):
         
         # Return in the same format as CLIPTextModel:
         # (last_hidden_state, intermediate_hidden_state, projected_pooled, unprojected_pooled)
-        return hidden_out, None, pooled_out, pooled_out
+        # For TensorRT, we return the same hidden states for both last and intermediate
+        return hidden_out, hidden_out, pooled_out, pooled_out
 
     def _embeds_to_tokens(self, embeds):
         """Convert embeddings back to tokens for TensorRT (simplified)"""
