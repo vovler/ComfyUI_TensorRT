@@ -143,16 +143,17 @@ class TRT_VAE_CONVERSION_BASE:
         os.makedirs(os.path.dirname(output_onnx), exist_ok=True)
         
         # Export to ONNX
-        torch.onnx.export(
-            vae_wrapper,
-            (input_tensor,),
-            output_onnx,
-            verbose=False,
-            input_names=input_names,
-            output_names=output_names,
-            opset_version=17,
-            dynamic_axes=dynamic_axes,
-        )
+        with torch.no_grad():
+            torch.onnx.export(
+                vae_wrapper,
+                (input_tensor,),
+                output_onnx,
+                verbose=False,
+                input_names=input_names,
+                output_names=output_names,
+                opset_version=17,
+                dynamic_axes=dynamic_axes,
+            )
 
         comfy.model_management.unload_all_models()
         comfy.model_management.soft_empty_cache()

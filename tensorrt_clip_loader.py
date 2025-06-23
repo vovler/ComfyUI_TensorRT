@@ -631,4 +631,7 @@ class TensorRTCLIPLoader:
         new_clip.use_clip_schedule = False
         new_clip.tokenizer_options = {}
         
+        # Add missing attributes for ComfyUI compatibility
+        new_clip.apply_hooks_to_conds = None  # This should be None as per ComfyUI's CLIP init
+        
         return (new_clip,)

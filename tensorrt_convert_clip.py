@@ -200,8 +200,8 @@ class TRT_CLIP_CONVERSION_BASE:
         # Set model to evaluation mode to avoid any training-specific behavior
         clip_wrapper.eval()
         
-        # Ensure wrapper is on the correct device
-        clip_wrapper = clip_wrapper.to(device=device)
+        # Ensure wrapper is on the correct device (CUDA)
+        clip_wrapper = clip_wrapper.cuda()
 
         # Input shapes for CLIP (token sequences)
         inputs_shapes_min = (batch_size_min, sequence_length_min)
