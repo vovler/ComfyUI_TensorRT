@@ -3,28 +3,21 @@ import sys
 import os
 import time
 import comfy.model_management
-import tensorrt as trt
 import folder_paths
 from tqdm import tqdm
 import comfy
 from typing import Any, Optional
-from .utils.tensorrt_error_recorder import TrTErrorRecorder
 from .utils.tqdm_progress_monitor import TQDMProgressMonitor
 from .utils.timing_cache import setup_timing_cache, save_timing_cache, get_timing_cache_path
-from .models.unet import SdUnet
+from .wrappers_for_onnx_convert.wrapper_unet_convert import UNETWrapper
+from .tensorrt_model import get_tensorrt_manager
 
-
-from .utils.folder_setup import setup_tensorrt_folder_paths
-
-# Setup TensorRT folder paths
-setup_tensorrt_folder_paths()
-        
 
 def _convert_model(
     model,
     filename_prefix,
     batch_size_min,
-    batch_size_opt,
+    batch_size_opt, 
     batch_size_max,
     height_min,
     height_opt,
@@ -35,12 +28,11 @@ def _convert_model(
     context_min,
     context_opt,
     context_max,
-    num_video_frames,
-    is_static: bool,
 ):
         output_dir = folder_paths.get_output_directory()
         temp_dir = folder_paths.get_temp_directory()
         timing_cache_path = get_timing_cache_path("unet")
+        trt_manager = get_tensorrt_manager()
         
         output_onnx = os.path.normpath(
             os.path.join(
@@ -48,7 +40,6 @@ def _convert_model(
             )
         )
 
-        comfy.model_management.unload_all_models()
         comfy.model_management.load_models_gpu([model], force_patch_weights=True, force_full_load=True)
         unet = model.model.diffusion_model
 
@@ -120,7 +111,7 @@ def _convert_model(
             )
 
         transformer_options = model.model.model_config.unet_config.get("transformer_options", {})
-        unet = SdUnet(unet, transformer_options, input_names[3:])
+        unet = UNETWrapper(unet, transformer_options, input_names[3:])
 
         
         os.makedirs(os.path.dirname(output_onnx), exist_ok=True)
@@ -136,18 +127,9 @@ def _convert_model(
                 dynamic_axes=dynamic_axes,
             )
 
-        comfy.model_management.unload_all_models()
-        comfy.model_management.soft_empty_cache()
-
-        # TRT conversion starts here
-        logger = trt.Logger(trt.Logger.INFO)
-        builder = trt.Builder(logger)
-        builder.error_recorder = TrTErrorRecorder()
-
-        network = builder.create_network(
-            1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-        )
-        parser = trt.OnnxParser(network, logger)
+        # TRT conversion starts here - Use centralized TensorRT manager
+        network = trt_manager.create_network()
+        parser = trt_manager.create_onnx_parser(network)
         success = parser.parse_from_file(output_onnx)
         for idx in range(parser.num_errors):
             print(parser.get_error(idx))
@@ -156,8 +138,8 @@ def _convert_model(
             print("ONNX load ERROR")
             return {}
 
-        config = builder.create_builder_config()
-        profile = builder.create_optimization_profile()
+        config = trt_manager.create_builder_config()
+        profile = trt_manager.builder.create_optimization_profile()
         setup_timing_cache(config, timing_cache_path)
         config.progress_monitor = TQDMProgressMonitor()
 
@@ -168,9 +150,9 @@ def _convert_model(
             opt_shape_list = [int(x) for x in inputs_shapes_opt[k]]
             max_shape_list = [int(x) for x in inputs_shapes_max[k]]
             
-            min_shape = trt.Dims(min_shape_list)
-            opt_shape = trt.Dims(opt_shape_list)
-            max_shape = trt.Dims(max_shape_list)
+            min_shape = tuple(min_shape_list)
+            opt_shape = tuple(opt_shape_list)
+            max_shape = tuple(max_shape_list)
             
             profile.set_shape(input_names[k], min_shape, opt_shape, max_shape)
 
@@ -180,48 +162,33 @@ def _convert_model(
                 input_names[k], encode(min_shape_list), encode(opt_shape_list), encode(max_shape_list)
             )
 
-        config.set_flag(trt.BuilderFlag.FP16)
+        config.set_flag(trt_manager.builder.BuilderFlag.FP16)
 
         config.add_optimization_profile(profile)
 
-        if is_static:
-            filename_prefix = "{}_${}".format(
-                filename_prefix,
-                "-".join(
-                    (
-                        "stat",
-                        "b",
-                        str(batch_size_opt),
-                        "h",
-                        str(height_opt),
-                        "w",
-                        str(width_opt),
-                    )
-                ),
-            )
-        else:
-            filename_prefix = "{}_${}".format(
-                filename_prefix,
-                "-".join(
-                    (
-                        "dyn",
-                        "b",
-                        str(batch_size_min),
-                        str(batch_size_max),
-                        str(batch_size_opt),
-                        "h",
-                        str(height_min),
-                        str(height_max),
-                        str(height_opt),
-                        "w",
-                        str(width_min),
-                        str(width_max),
-                        str(width_opt),
-                    )
-                ),
-            )
+        
+        filename_prefix = "{}_${}".format(
+            filename_prefix,
+            "-".join(
+                (
+                    "dyn",
+                    "b",
+                    str(batch_size_min),
+                    str(batch_size_max),
+                    str(batch_size_opt),
+                    "h",
+                    str(height_min),
+                    str(height_max),
+                    str(height_opt),
+                    "w",
+                    str(width_min),
+                    str(width_max),
+                    str(width_opt),
+                )
+            ),
+        )
 
-        serialized_engine = builder.build_serialized_network(network, config)
+        serialized_engine = trt_manager.build_serialized_network(network, config)
 
         full_output_folder, filename, counter, subfolder, filename_prefix = (
             folder_paths.get_save_image_path(filename_prefix, output_dir)
@@ -239,7 +206,7 @@ def _convert_model(
         return {}
 
 
-class DYNAMIC_TRT_MODEL_CONVERSION:
+class UNET_CONVERTER_TENSORRT_DYNAMIC:
     RETURN_TYPES = ()
     FUNCTION = "convert"
     OUTPUT_NODE = True
@@ -359,15 +326,6 @@ class DYNAMIC_TRT_MODEL_CONVERSION:
                         "step": 1,
                     },
                 ),
-                "num_video_frames": (
-                    "INT",
-                    {
-                        "default": 14,
-                        "min": 0,
-                        "max": 1000,
-                        "step": 1,
-                    },
-                ),
             },
         }
 
@@ -387,7 +345,6 @@ class DYNAMIC_TRT_MODEL_CONVERSION:
         context_min,
         context_opt,
         context_max,
-        num_video_frames,
     ):
         try:
             _convert_model(
@@ -405,8 +362,6 @@ class DYNAMIC_TRT_MODEL_CONVERSION:
                 context_min,
                 context_opt,
                 context_max,
-                num_video_frames,
-                is_static=False,
             )
         except Exception as e:
             print(f"DYNAMIC_TRT_MODEL_CONVERSION - Error converting: {e}")

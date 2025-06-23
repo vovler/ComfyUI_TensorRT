@@ -4,32 +4,15 @@ import os
 import time
 import comfy.model_management
 import comfy.sd
-import tensorrt as trt
 import folder_paths
+import tensorrt as trt
 from tqdm import tqdm
 import comfy
 from typing import Any, Optional
-from .utils.tensorrt_error_recorder import TrTErrorRecorder
 from .utils.tqdm_progress_monitor import TQDMProgressMonitor
 from .utils.timing_cache import setup_timing_cache, save_timing_cache, get_timing_cache_path
-from .utils.folder_setup import setup_tensorrt_folder_paths
-
-# Setup TensorRT folder paths
-setup_tensorrt_folder_paths()
-
-
-class VAEWrapper(torch.nn.Module):
-    """Wrapper for VAE encoder/decoder to make it compatible with ONNX export"""
-    def __init__(self, vae_model, is_encoder=False):
-        super().__init__()
-        self.vae = vae_model
-        self.is_encoder = is_encoder
-
-    def forward(self, x):
-        if self.is_encoder:
-            return self.vae.encode(x)
-        else:
-            return self.vae.decode(x)
+from .tensorrt_model import get_tensorrt_manager
+from .wrappers_for_onnx_convert.wrapper_vae_convert import VAEWrapper
 
 
 def _convert_vae(
@@ -45,11 +28,11 @@ def _convert_vae(
     width_opt,
     width_max,
     is_encoder: bool,
-    is_static: bool,
 ):
         output_dir = folder_paths.get_output_directory()
         temp_dir = folder_paths.get_temp_directory()
         timing_cache_path = get_timing_cache_path("vae")
+        trt_manager = get_tensorrt_manager()
         
         output_onnx = os.path.normpath(
             os.path.join(
@@ -57,8 +40,6 @@ def _convert_vae(
             )
         )
 
-        comfy.model_management.unload_all_models()
-        
         # Load VAE to GPU
         vae_model = vae.first_stage_model
         device = comfy.model_management.get_torch_device()
@@ -118,18 +99,9 @@ def _convert_vae(
                 dynamic_axes=dynamic_axes,
             )
 
-        comfy.model_management.unload_all_models()
-        comfy.model_management.soft_empty_cache()
-
-        # TRT conversion starts here
-        logger = trt.Logger(trt.Logger.INFO)
-        builder = trt.Builder(logger)
-        builder.error_recorder = TrTErrorRecorder()
-
-        network = builder.create_network(
-            1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-        )
-        parser = trt.OnnxParser(network, logger)
+        # TRT conversion starts here - Use centralized TensorRT manager
+        network = trt_manager.create_network()
+        parser = trt_manager.create_onnx_parser(network)
         success = parser.parse_from_file(output_onnx)
         for idx in range(parser.num_errors):
             print(parser.get_error(idx))
@@ -138,8 +110,8 @@ def _convert_vae(
             print("ONNX load ERROR")
             return {}
 
-        config = builder.create_builder_config()
-        profile = builder.create_optimization_profile()
+        config = trt_manager.create_builder_config()
+        profile = trt_manager.builder.create_optimization_profile()
         setup_timing_cache(config, timing_cache_path)
         config.progress_monitor = TQDMProgressMonitor()
 
@@ -154,52 +126,37 @@ def _convert_vae(
         
         profile.set_shape("x", min_shape, opt_shape, max_shape)
 
-        config.set_flag(trt.BuilderFlag.FP16)
+
+        config.set_flag(trt_manager.builder.BuilderFlag.FP16)
 
         config.add_optimization_profile(profile)
 
         # Generate filename
         vae_type = "encoder" if is_encoder else "decoder"
-        if is_static:
-            filename_prefix = "{}_{}${}".format(
-                filename_prefix,
-                vae_type,
-                "-".join(
-                    (
-                        "stat",
-                        "b",
-                        str(batch_size_opt),
-                        "h",
-                        str(height_opt),
-                        "w",
-                        str(width_opt),
-                    )
-                ),
-            )
-        else:
-            filename_prefix = "{}_{}${}".format(
-                filename_prefix,
-                vae_type,
-                "-".join(
-                    (
-                        "dyn",
-                        "b",
-                        str(batch_size_min),
-                        str(batch_size_max),
-                        str(batch_size_opt),
-                        "h",
-                        str(height_min),
-                        str(height_max),
-                        str(height_opt),
-                        "w",
-                        str(width_min),
-                        str(width_max),
-                        str(width_opt),
-                    )
-                ),
-            )
 
-        serialized_engine = builder.build_serialized_network(network, config)
+        filename_prefix = "{}_{}${}".format(
+            filename_prefix,
+            vae_type,
+            "-".join(
+                (
+                    "dyn",
+                    "b",
+                    str(batch_size_min),
+                    str(batch_size_max),
+                    str(batch_size_opt),
+                    "h",
+                    str(height_min),
+                    str(height_max),
+                    str(height_opt),
+                    "w",
+                    str(width_min),
+                    str(width_max),
+                    str(width_opt),
+                )
+            ),
+        )
+
+        serialized_engine = trt_manager.build_serialized_network(network, config)
 
         full_output_folder, filename, counter, subfolder, filename_prefix = (
             folder_paths.get_save_image_path(filename_prefix, output_dir)
@@ -215,10 +172,10 @@ def _convert_vae(
 
         vae_type = "encoder" if is_encoder else "decoder"
         print(f"TensorRT VAE {vae_type} conversion complete! Engine saved to: {output_trt_engine}")
-        return {}
+        return
 
 
-class DYNAMIC_TRT_VAE_DECODER_CONVERSION:
+class VAE_DECODER_CONVERTER_TENSORRT_DYNAMIC:
     RETURN_TYPES = ()
     FUNCTION = "convert"
     OUTPUT_NODE = True
@@ -342,10 +299,9 @@ class DYNAMIC_TRT_VAE_DECODER_CONVERSION:
                 width_opt,
                 width_max,
                 is_encoder=False,
-                is_static=False,
             )
         except Exception as e:
-            print(f"DYNAMIC_TRT_VAE_DECODER_CONVERSION - Error converting: {e}")
+            print(f"VAE_DECODER_CONVERTER_TENSORRT_DYNAMIC - Error converting: {e}")
             return ()
         return ()
 
@@ -353,7 +309,7 @@ class DYNAMIC_TRT_VAE_DECODER_CONVERSION:
 
 
 
-class DYNAMIC_TRT_VAE_ENCODER_CONVERSION:
+class VAE_ENCODER_CONVERTER_TENSORRT_DYNAMIC:
     RETURN_TYPES = ()
     FUNCTION = "convert"
     OUTPUT_NODE = True
@@ -477,10 +433,9 @@ class DYNAMIC_TRT_VAE_ENCODER_CONVERSION:
                 width_opt,
                 width_max,
                 is_encoder=True,
-                is_static=False,
             )
         except Exception as e:
-            print(f"DYNAMIC_TRT_VAE_ENCODER_CONVERSION - Error converting: {e}")
+            print(f"VAE_ENCODER_CONVERTER_TENSORRT_DYNAMIC - Error converting: {e}")
             return ()
         return ()
 
