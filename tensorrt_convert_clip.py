@@ -122,9 +122,11 @@ class TRT_CLIP_CONVERSION_BASE:
         # Load the CLIP model using the patcher instead of direct model management
         if hasattr(clip, 'patcher') and clip.patcher is not None:
             clip.patcher.patch_model(device_to=device, force_patch_weights=True)
+            print(f"CLIP model moved to device: {device}")
         else:
             # Fallback: manually move the CLIP model to device
             clip_model = clip_model.to(device=device)
+            print(f"CLIP model moved to device - FALLBACK: {device}")
         
         # Debug: Print CLIP model structure
         print(f"CLIP model type: {type(clip_model)}")
@@ -163,6 +165,7 @@ class TRT_CLIP_CONVERSION_BASE:
         
         # Ensure all model parameters are on the same device
         clip_component = clip_component.to(device=device, dtype=model_dtype)
+        print(f"CLIP component moved to device: {device} with dtype: {model_dtype}")
         
         # Force all buffers and parameters to be on the same device
         for name, param in clip_component.named_parameters():
