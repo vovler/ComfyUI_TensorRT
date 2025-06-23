@@ -33,14 +33,19 @@ class TensorRTCompatibleEmbedding(torch.nn.Module):
         super().__init__()
         self.embed_dim = embed_dim
         self.vocab_size = vocab_size
-        # Create a dummy weight for interface compatibility
-        self.weight = torch.nn.Parameter(torch.zeros(vocab_size, embed_dim, device=device, dtype=dtype))
+        # Create a proper embedding layer that can convert tokens to embeddings
+        self.embedding = torch.nn.Embedding(vocab_size, embed_dim, device=device, dtype=dtype)
+        # Initialize with small random values for better numerical stability
+        torch.nn.init.normal_(self.embedding.weight, mean=0.0, std=0.02)
+        
+    @property 
+    def weight(self):
+        return self.embedding.weight
         
     def forward(self, input_tokens, out_dtype=torch.float32):
-        # For TensorRT, we don't actually use this embedding for inference
-        # This is just for interface compatibility
-        batch_size, seq_len = input_tokens.shape
-        return torch.zeros(batch_size, seq_len, self.embed_dim, device=input_tokens.device, dtype=out_dtype)
+        # Convert tokens to embeddings using the embedding layer
+        embeddings = self.embedding(input_tokens)
+        return embeddings.to(dtype=out_dtype)
 
 class TensorRTCLIPTextModel(torch.nn.Module):
     """
@@ -146,16 +151,19 @@ class TensorRTCLIPTextModel(torch.nn.Module):
         """
         self.load()  # Ensure engine is loaded
         
-        # For TensorRT, we'll use the embeds if provided, otherwise convert input_tokens
+        # The TensorRT engine expects embeddings as input, not tokens
         if embeds is not None:
-            # Use provided embeddings (from process_tokens)
-            tokens = self._embeds_to_tokens(embeds)
+            # Use provided embeddings directly
+            embeddings = embeds
+            print(f"TensorRT CLIP forward - Using provided embeddings: {embeddings.shape}, dtype: {embeddings.dtype}")
         elif input_tokens is not None:
-            tokens = input_tokens
+            # Convert tokens to embeddings using dummy embedding layer
+            embeddings = self.dummy_embedding(input_tokens, out_dtype=dtype)
+            print(f"TensorRT CLIP forward - Converted tokens to embeddings: {input_tokens.shape} -> {embeddings.shape}")
         else:
             raise ValueError("Either input_tokens or embeds must be provided")
         
-        print(f"TensorRT CLIP forward - Input shape: {tokens.shape}, dtype: {tokens.dtype}")
+        print(f"TensorRT CLIP forward - Final embeddings shape: {embeddings.shape}, dtype: {embeddings.dtype}")
         
         # Find the actual input tensor name from the engine
         input_tensor_name = None
@@ -168,8 +176,8 @@ class TensorRTCLIPTextModel(torch.nn.Module):
         if input_tensor_name is None:
             raise RuntimeError("No input tensor found in TensorRT CLIP engine")
             
-        model_inputs = {input_tensor_name: tokens}
-        batch_size = tokens.shape[0]
+        model_inputs = {input_tensor_name: embeddings}
+        batch_size = embeddings.shape[0]
         
         # Handle batch splitting for dynamic profiles
         dims = self.engine.get_tensor_profile_shape(input_tensor_name, 0)
@@ -191,13 +199,13 @@ class TensorRTCLIPTextModel(torch.nn.Module):
             is_input = self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT
             print(f"  {tensor_name}: {'INPUT' if is_input else 'OUTPUT'} - engine_shape: {tensor_shape}")
         
-        print(f"TensorRT - About to set input shape for {input_tensor_name}: {tokens.shape}")
+        print(f"TensorRT - About to set input shape for {input_tensor_name}: {embeddings.shape}")
         try:
             self.set_bindings_shape(model_inputs, curr_split_batch)
         except Exception as e:
             print(f"TensorRT - Error setting input shape: {e}")
             print(f"TensorRT - Trying direct context.set_input_shape...")
-            self.context.set_input_shape(input_tensor_name, tokens.shape)
+            self.context.set_input_shape(input_tensor_name, embeddings.shape)
             print(f"TensorRT - Direct shape setting successful")
 
         # Convert inputs to appropriate data types
@@ -227,13 +235,13 @@ class TensorRTCLIPTextModel(torch.nn.Module):
         for idx in range(len(hidden_shape)):
             if hidden_shape[idx] == -1:
                 if idx == 0:  # batch
-                    hidden_shape[idx] = tokens.shape[0]
+                    hidden_shape[idx] = embeddings.shape[0]
                 elif idx == 1:  # sequence
-                    hidden_shape[idx] = tokens.shape[1]
+                    hidden_shape[idx] = embeddings.shape[1]
                 elif idx == 2:  # hidden_size
                     hidden_shape[idx] = self.hidden_size
                 else:
-                    hidden_shape[idx] = tokens.shape[idx]
+                    hidden_shape[idx] = embeddings.shape[idx]
             else:
                 if idx == 0:
                     hidden_shape[idx] *= curr_split_batch
@@ -241,20 +249,20 @@ class TensorRTCLIPTextModel(torch.nn.Module):
         for idx in range(len(pooled_shape)):
             if pooled_shape[idx] == -1:
                 if idx == 0:  # batch
-                    pooled_shape[idx] = tokens.shape[0]
+                    pooled_shape[idx] = embeddings.shape[0]
                 elif idx == 1:  # pooled dimension
                     pooled_shape[idx] = self.hidden_size
                 else:
-                    pooled_shape[idx] = tokens.shape[idx]
+                    pooled_shape[idx] = embeddings.shape[idx]
             else:
                 if idx == 0:
                     pooled_shape[idx] *= curr_split_batch
 
         hidden_out = torch.empty(hidden_shape,
-                               device=tokens.device,
+                               device=embeddings.device,
                                dtype=trt_datatype_to_torch(self.engine.get_tensor_dtype(hidden_states_name)))
         pooled_out = torch.empty(pooled_shape,
-                               device=tokens.device,
+                               device=embeddings.device,
                                dtype=trt_datatype_to_torch(self.engine.get_tensor_dtype(pooled_output_name)))
         
         model_inputs_converted[hidden_states_name] = hidden_out
@@ -278,8 +286,8 @@ class TensorRTCLIPTextModel(torch.nn.Module):
         except Exception as e:
             print(f"TensorRT - Error during inference: {e}")
             # Return zero tensors as fallback
-            hidden_out = torch.zeros(hidden_shape, device=tokens.device, dtype=torch.float32)
-            pooled_out = torch.zeros(pooled_shape, device=tokens.device, dtype=torch.float32)
+            hidden_out = torch.zeros(hidden_shape, device=embeddings.device, dtype=torch.float32)
+            pooled_out = torch.zeros(pooled_shape, device=embeddings.device, dtype=torch.float32)
             return hidden_out, hidden_out, pooled_out, pooled_out
         
         # Convert to float32 for compatibility
@@ -390,6 +398,9 @@ class TensorRTCLIPLoader:
             new_clip.layer_idx = None
             new_clip.use_clip_schedule = False
             new_clip.tokenizer_options = {}
+            
+            # Add missing attributes for ComfyUI compatibility
+            new_clip.apply_hooks_to_conds = None
             
             return (new_clip,)
             
