@@ -107,8 +107,11 @@ class TrTCLIPL:
         model_inputs_converted = {}
         for k in model_inputs:
             data_type = self.engine.get_tensor_dtype(k)
-            model_inputs_converted[k] = model_inputs[k].to(dtype=trt_datatype_to_torch(data_type))
-            print(f"TrTCLIPL - Input '{k}' converted to dtype: {trt_datatype_to_torch(data_type)}")
+            print(f"TrTCLIPL - Engine expects input '{k}' to have TensorRT dtype: {data_type} (type: {type(data_type)})")
+            torch_dtype = trt_datatype_to_torch(data_type)
+            print(f"TrTCLIPL - Converting to torch dtype: {torch_dtype}")
+            model_inputs_converted[k] = model_inputs[k].to(dtype=torch_dtype)
+            print(f"TrTCLIPL - Input '{k}' converted to dtype: {torch_dtype}")
 
         # Get output tensor info - CLIP-L now has 2 outputs (hidden_states, pooled_output)
         # Find output tensors dynamically
@@ -298,8 +301,15 @@ class TrTCLIPG:
         model_inputs_converted = {}
         for k in model_inputs:
             data_type = self.engine.get_tensor_dtype(k)
-            model_inputs_converted[k] = model_inputs[k].to(dtype=trt_datatype_to_torch(data_type))
-            print(f"TrTCLIPG - Input '{k}' converted to dtype: {trt_datatype_to_torch(data_type)}")
+            print(f"TrTCLIPG - Engine expects input '{k}' to have TensorRT dtype: {data_type} (type: {type(data_type)})")
+            torch_dtype = trt_datatype_to_torch(data_type)
+            print(f"TrTCLIPG - Converting to torch dtype: {torch_dtype}")
+            if torch_dtype is not None:
+                model_inputs_converted[k] = model_inputs[k].to(dtype=torch_dtype)
+                print(f"TrTCLIPG - Input '{k}' converted to dtype: {torch_dtype}")
+            else:
+                print(f"TrTCLIPG - ERROR: Could not convert input '{k}' - unsupported datatype {data_type}")
+                model_inputs_converted[k] = model_inputs[k]  # Use original without conversion
 
         # Get output tensor info - CLIP-G has 2 outputs (hidden_states, pooled_output)
         # Find output tensors dynamically
