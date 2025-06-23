@@ -2,6 +2,7 @@ import torch
 import sys
 import os
 import time
+import traceback
 import comfy.model_management
 import comfy.sd
 import tensorrt as trt
@@ -276,6 +277,8 @@ class STATIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):
             )
         except Exception as e:
             print(f"STATIC_TRT_CLIP_L_CONVERSION - Error converting: {e}")
+            print(f"STATIC_TRT_CLIP_L_CONVERSION - Full stack trace:")
+            traceback.print_exc()
             return ()
         return ()
 
@@ -338,5 +341,7 @@ class STATIC_TRT_CLIP_G_CONVERSION(TRT_CLIP_CONVERSION_BASE):
             )
         except Exception as e:
             print(f"STATIC_TRT_CLIP_G_CONVERSION - Error converting: {e}")
+            print(f"STATIC_TRT_CLIP_G_CONVERSION - Full stack trace:")
+            traceback.print_exc()
             return ()
         return ()
