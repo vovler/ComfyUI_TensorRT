@@ -392,6 +392,10 @@ class TrTCLIP:
         """Get state dict (empty for TensorRT)"""
         return {}
 
+    def state_dict(self):
+        """Get state dict (required by ModelPatcher)"""
+        return {}
+
     @property
     def memory_used_clip_l(self):
         clip_l_size = self.clip_l.size if self.clip_l else 0
