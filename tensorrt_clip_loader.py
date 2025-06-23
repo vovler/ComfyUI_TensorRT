@@ -196,14 +196,32 @@ class TrTCLIPL:
         print(f"TrTCLIPL - Output dtypes: hidden={hidden_out.dtype}, pooled={pooled_out.dtype}")
         
         # Check for NaN/Inf values immediately after TensorRT inference
-        if torch.isnan(hidden_out).any():
-            print("WARNING: NaN values detected in TrTCLIPL hidden_out!")
-        if torch.isinf(hidden_out).any():
-            print("WARNING: Infinite values detected in TrTCLIPL hidden_out!")
-        if torch.isnan(pooled_out).any():
-            print("WARNING: NaN values detected in TrTCLIPL pooled_out!")
-        if torch.isinf(pooled_out).any():
-            print("WARNING: Infinite values detected in TrTCLIPL pooled_out!")
+        has_nan_hidden = torch.isnan(hidden_out).any()
+        has_inf_hidden = torch.isinf(hidden_out).any()
+        has_nan_pooled = torch.isnan(pooled_out).any()
+        has_inf_pooled = torch.isinf(pooled_out).any()
+        
+        if has_nan_hidden:
+            print("🔴 WARNING: NaN values detected in TrTCLIPL hidden_out!")
+            print(f"   NaN count: {torch.isnan(hidden_out).sum().item()}/{hidden_out.numel()}")
+        if has_inf_hidden:
+            print("🔴 WARNING: Infinite values detected in TrTCLIPL hidden_out!")
+            print(f"   Inf count: {torch.isinf(hidden_out).sum().item()}/{hidden_out.numel()}")
+        if has_nan_pooled:
+            print("🔴 WARNING: NaN values detected in TrTCLIPL pooled_out!")
+        if has_inf_pooled:
+            print("🔴 WARNING: Infinite values detected in TrTCLIPL pooled_out!")
+        
+        # Print detailed statistics
+        if not has_nan_hidden and not has_inf_hidden:
+            print(f"✅ TrTCLIPL hidden_out stats: min={hidden_out.min().item():.6f}, max={hidden_out.max().item():.6f}, mean={hidden_out.mean().item():.6f}")
+        else:
+            print(f"❌ TrTCLIPL hidden_out stats: CORRUPTED (contains NaN/Inf)")
+            
+        if not has_nan_pooled and not has_inf_pooled:
+            print(f"✅ TrTCLIPL pooled_out stats: min={pooled_out.min().item():.6f}, max={pooled_out.max().item():.6f}, mean={pooled_out.mean().item():.6f}")
+        else:
+            print(f"❌ TrTCLIPL pooled_out stats: CORRUPTED (contains NaN/Inf)")
         
         # Convert to float32 for compatibility and to avoid NaN issues with fp16
         hidden_out = hidden_out.to(dtype=torch.float32)
@@ -394,14 +412,32 @@ class TrTCLIPG:
         print(f"TrTCLIPG - Output dtypes: hidden={hidden_out.dtype}, pooled={pooled_out.dtype}")
         
         # Check for NaN/Inf values immediately after TensorRT inference
-        if torch.isnan(hidden_out).any():
-            print("WARNING: NaN values detected in TrTCLIPG hidden_out!")
-        if torch.isinf(hidden_out).any():
-            print("WARNING: Infinite values detected in TrTCLIPG hidden_out!")
-        if torch.isnan(pooled_out).any():
-            print("WARNING: NaN values detected in TrTCLIPG pooled_out!")
-        if torch.isinf(pooled_out).any():
-            print("WARNING: Infinite values detected in TrTCLIPG pooled_out!")
+        has_nan_hidden = torch.isnan(hidden_out).any()
+        has_inf_hidden = torch.isinf(hidden_out).any()
+        has_nan_pooled = torch.isnan(pooled_out).any()
+        has_inf_pooled = torch.isinf(pooled_out).any()
+        
+        if has_nan_hidden:
+            print("🔴 TrTCLIPG - NaN values detected in hidden_out!")
+            print(f"   NaN count: {torch.isnan(hidden_out).sum().item()}/{hidden_out.numel()}")
+        if has_inf_hidden:
+            print("🔴 TrTCLIPG - Infinite values detected in hidden_out!")
+            print(f"   Inf count: {torch.isinf(hidden_out).sum().item()}/{hidden_out.numel()}")
+        if has_nan_pooled:
+            print("🔴 TrTCLIPG - NaN values detected in pooled_out!")
+        if has_inf_pooled:
+            print("🔴 TrTCLIPG - Infinite values detected in pooled_out!")
+        
+        # Print detailed statistics
+        if not has_nan_hidden and not has_inf_hidden:
+            print(f"✅ TrTCLIPG hidden_out stats: min={hidden_out.min().item():.6f}, max={hidden_out.max().item():.6f}, mean={hidden_out.mean().item():.6f}")
+        else:
+            print(f"❌ TrTCLIPG hidden_out stats: CORRUPTED (contains NaN/Inf)")
+            
+        if not has_nan_pooled and not has_inf_pooled:
+            print(f"✅ TrTCLIPG pooled_out stats: min={pooled_out.min().item():.6f}, max={pooled_out.max().item():.6f}, mean={pooled_out.mean().item():.6f}")
+        else:
+            print(f"❌ TrTCLIPG pooled_out stats: CORRUPTED (contains NaN/Inf)")
         
         # Convert to float32 for compatibility and to avoid NaN issues with fp16
         hidden_out = hidden_out.to(dtype=torch.float32)
