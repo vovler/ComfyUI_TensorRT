@@ -1,4 +1,6 @@
 import torch
+import onnx
+import torch.onnx
 import sys
 import os
 import time
@@ -13,7 +15,8 @@ from typing import Any, Optional
 from .utils.tensorrt_error_recorder import TrTErrorRecorder
 from .utils.tqdm_progress_monitor import TQDMProgressMonitor
 import numpy as np
-
+import traceback
+import onnxruntime as ort
 
 # add output directory to tensorrt search path
 if "tensorrt" in folder_paths.folder_names_and_paths:
@@ -266,7 +269,7 @@ class TRT_CLIP_CONVERSION_BASE:
             except Exception as e:
                 print(f"🔴 PyTorch model validation ERROR for {clip_type_str}: {e}")
                 print(f"   Stopping conversion - PyTorch model failed to run!")
-                import traceback
+                
                 traceback.print_exc()
                 return {}
 
@@ -291,7 +294,7 @@ class TRT_CLIP_CONVERSION_BASE:
         # TEST ONNX MODEL BEFORE TENSORRT CONVERSION
         print(f"\n🧪 Testing ONNX model for {clip_type_str}...")
         try:
-            import onnxruntime as ort
+            
             
             # Create ONNX Runtime session with GPU if available
             providers = ['CUDAExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
@@ -367,8 +370,7 @@ class TRT_CLIP_CONVERSION_BASE:
         # TEST ONNX MODEL WITH PYTORCH DIRECTLY
         print(f"\n🔥 Testing ONNX model with PyTorch directly for {clip_type_str}...")
         try:
-            import onnx
-            import torch.onnx
+            
             
             # Load the ONNX model
             print(f"   Loading ONNX model for inspection...")
