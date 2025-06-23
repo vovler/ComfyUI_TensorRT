@@ -51,6 +51,25 @@ class TrTUnet:
             self.context.set_input_shape(k, shape)
 
     def __call__(self, x, timesteps, context, y=None, control=None, transformer_options=None, **kwargs):
+        # Debug prints for CLIP embeddings
+        print(f"TrTUnet.__call__ - Input shapes:")
+        print(f"  x (latents): {x.shape}, dtype: {x.dtype}")
+        print(f"  timesteps: {timesteps.shape}, dtype: {timesteps.dtype}")
+        print(f"  context (CLIP embeddings): {context.shape}, dtype: {context.dtype}")
+        if y is not None:
+            print(f"  y (pooled): {y.shape}, dtype: {y.dtype}")
+        
+        # Debug: Check for invalid values in context
+        if torch.isnan(context).any():
+            print(f"  WARNING: NaN values detected in context!")
+        if torch.isinf(context).any():
+            print(f"  WARNING: Infinite values detected in context!")
+        
+        # Debug: Print context statistics
+        print(f"  context min: {context.min().item():.6f}, max: {context.max().item():.6f}, mean: {context.mean().item():.6f}")
+        if y is not None:
+            print(f"  y min: {y.min().item():.6f}, max: {y.max().item():.6f}, mean: {y.mean().item():.6f}")
+            
         model_inputs = {"x": x, "timesteps": timesteps, "context": context}
 
         if y is not None:

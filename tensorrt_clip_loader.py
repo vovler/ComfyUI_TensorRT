@@ -484,30 +484,50 @@ class TrTCLIP(torch.nn.Module):
 
     def encode_token_weights(self, token_weight_pairs):
         """Use ComfyUI's exact SDXL logic - much cleaner!"""
+        print(f"\nTrTCLIP.encode_token_weights called with token_weight_pairs type: {type(token_weight_pairs)}")
         self._force_load_engines()
         
         # Use ComfyUI's SDXLClipModel.encode_token_weights logic exactly
         if isinstance(token_weight_pairs, dict) and "l" in token_weight_pairs and "g" in token_weight_pairs:
             token_weight_pairs_g = token_weight_pairs["g"]
             token_weight_pairs_l = token_weight_pairs["l"]
+            print(f"Processing dual CLIP (L+G): l_tokens={len(token_weight_pairs_l)}, g_tokens={len(token_weight_pairs_g)}")
             
             # Call our TensorRT wrappers that mimic ComfyUI's interface
             g_out, g_pooled = self.clip_g.encode_token_weights(token_weight_pairs_g) if self.clip_g else (None, None)
             l_out, l_pooled = self.clip_l.encode_token_weights(token_weight_pairs_l) if self.clip_l else (None, None)
             
+            print(f"CLIP-G output: {g_out.shape if g_out is not None else None}, pooled: {g_pooled.shape if g_pooled is not None else None}")
+            print(f"CLIP-L output: {l_out.shape if l_out is not None else None}, pooled: {l_pooled.shape if l_pooled is not None else None}")
+            
             # ComfyUI's exact concatenation logic from sdxl_clip.py line 60-61
             if l_out is not None and g_out is not None:
                 cut_to = min(l_out.shape[1], g_out.shape[1])
                 combined_out = torch.cat([l_out[:,:cut_to], g_out[:,:cut_to]], dim=-1)
+                print(f"Combined CLIP-L + CLIP-G: cut_to={cut_to}, final_shape={combined_out.shape}")
             elif g_out is not None:
                 combined_out = torch.nn.functional.pad(g_out, (768, 0))  # Pad CLIP-G to 2048
+                print(f"Using CLIP-G only, padded to: {combined_out.shape}")
             elif l_out is not None:
                 combined_out = torch.nn.functional.pad(l_out, (0, 1280))  # Pad CLIP-L to 2048  
+                print(f"Using CLIP-L only, padded to: {combined_out.shape}")
             else:
                 combined_out = torch.zeros((1, 77, 2048), device=self.device, dtype=torch.float32)
+                print(f"No CLIP outputs, using zeros: {combined_out.shape}")
             
             # ComfyUI returns g_pooled ONLY (not concatenated)
             pooled = g_pooled if g_pooled is not None else torch.zeros((1, 1280), device=self.device, dtype=torch.float32)
+            print(f"Final pooled output: {pooled.shape}")
+            
+            # Debug: Check for invalid values
+            if torch.isnan(combined_out).any():
+                print("WARNING: NaN values detected in combined_out!")
+            if torch.isnan(pooled).any():
+                print("WARNING: NaN values detected in pooled!")
+            
+            print(f"Returning context: {combined_out.shape}, pooled: {pooled.shape}")
+            print(f"Context stats - min: {combined_out.min().item():.6f}, max: {combined_out.max().item():.6f}, mean: {combined_out.mean().item():.6f}")
+            print(f"Pooled stats - min: {pooled.min().item():.6f}, max: {pooled.max().item():.6f}, mean: {pooled.mean().item():.6f}")
             
             return combined_out, pooled
         else:
