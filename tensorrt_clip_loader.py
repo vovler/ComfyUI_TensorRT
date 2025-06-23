@@ -41,11 +41,13 @@ class TrTCLIPL:
     def load(self):
         if self.engine is not None or self.context is not None:
             return
+        print(f"Loading TensorRT CLIP-L engine from: {self.engine_path}")
         with open(self.engine_path, "rb") as f:
             self.engine = self.runtime.deserialize_cuda_engine(f.read())
             check_for_trt_errors(self.runtime)
             self.context = self.engine.create_execution_context()
             check_for_trt_errors(self.runtime)
+        print(f"TensorRT CLIP-L engine loaded successfully")
 
     @property
     def size(self) -> int:
@@ -151,11 +153,13 @@ class TrTCLIPG:
     def load(self):
         if self.engine is not None or self.context is not None:
             return
+        print(f"Loading TensorRT CLIP-G engine from: {self.engine_path}")
         with open(self.engine_path, "rb") as f:
             self.engine = self.runtime.deserialize_cuda_engine(f.read())
             check_for_trt_errors(self.runtime)
             self.context = self.engine.create_execution_context()
             check_for_trt_errors(self.runtime)
+        print(f"TensorRT CLIP-G engine loaded successfully")
 
     @property
     def size(self) -> int:
@@ -277,9 +281,10 @@ class TrTCLIPG:
             del context_obj
 
 
-class TrTCLIP:
+class TrTCLIP(torch.nn.Module):
     """TensorRT CLIP wrapper that combines CLIP-L and CLIP-G"""
     def __init__(self, clip_l_path=None, clip_g_path=None, original_clip=None):
+        super().__init__()
         self.clip_l = TrTCLIPL(clip_l_path, runtime) if clip_l_path else None
         self.clip_g = TrTCLIPG(clip_g_path, runtime) if clip_g_path else None
         self.original_clip = original_clip
@@ -300,6 +305,9 @@ class TrTCLIP:
 
     def encode_token_weights(self, token_weight_pairs):
         """Encode token weights using TensorRT CLIP models"""
+        
+        # Ensure engines are loaded before inference
+        self._force_load_engines()
         
         # Handle SDXL dual-clip structure
         if isinstance(token_weight_pairs, dict) and "l" in token_weight_pairs and "g" in token_weight_pairs:
@@ -411,6 +419,71 @@ class TrTCLIP:
             self.clip_l.unload()
         if self.clip_g:
             self.clip_g.unload()
+    
+    def to(self, device=None, dtype=None, **kwargs):
+        """Move model to device (for ModelPatcher compatibility)"""
+        if device is not None:
+            old_device = self.device
+            self.device = device
+            
+            # If moving to GPU and we have engines, force load them
+            if device.type == 'cuda' and old_device.type != 'cuda':
+                self._force_load_engines()
+            # If moving to CPU, we could implement offloading here
+            elif device.type == 'cpu' and old_device.type == 'cuda':
+                self._offload_engines()
+                
+        if dtype is not None:
+            self.dtype = dtype
+        return self
+    
+    def _force_load_engines(self):
+        """Force load TensorRT engines to GPU"""
+        if self.clip_l:
+            self.clip_l.load()
+        if self.clip_g:
+            self.clip_g.load()
+    
+    def _offload_engines(self):
+        """Offload TensorRT engines from GPU"""
+        if self.clip_l:
+            self.clip_l.unload()
+        if self.clip_g:
+            self.clip_g.unload()
+    
+    def cuda(self, device=None):
+        """Move to CUDA device (for ModelPatcher compatibility)"""
+        if device is None:
+            device = torch.device('cuda')
+        return self.to(device)
+    
+    def cpu(self):
+        """Move to CPU device (for ModelPatcher compatibility)"""
+        return self.to(torch.device('cpu'))
+    
+    def eval(self):
+        """Set to evaluation mode (for ModelPatcher compatibility)"""
+        return self
+    
+    def train(self, mode=True):
+        """Set training mode (for ModelPatcher compatibility)"""
+        return self
+    
+    def parameters(self):
+        """Return empty parameters iterator (for ModelPatcher compatibility)"""
+        return iter([])
+    
+    def named_parameters(self):
+        """Return empty named parameters iterator (for ModelPatcher compatibility)"""
+        return iter([])
+    
+    def named_modules(self):
+        """Return empty named modules iterator (for ModelPatcher compatibility)"""
+        return iter([])
+    
+    def modules(self):
+        """Return empty modules iterator (for ModelPatcher compatibility)"""
+        return iter([self])
 
 
 class TensorRTCLIPLoader:
