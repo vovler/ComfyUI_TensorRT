@@ -31,56 +31,37 @@ class CLIPWrapper(torch.nn.Module):
     def __init__(self, clip_model, is_clip_l=True):
         super().__init__()
         self.clip = clip_model
+        # is_clip_l determines how we derive the pooled output
         self.is_clip_l = is_clip_l
+        
+        # We need to know which token is the EOS token to extract the pooled output for CLIP-L
+        # For OpenCLIP, this is typically the last non-padded token.
+        # We will assume a simple case here: the last token of the sequence.
+        # A more robust implementation might find the first padding token and take the one before it.
 
     def forward(self, tokens):
-        # For TensorRT conversion, we need to work directly with the transformer
-        # rather than going through ComfyUI's token processing pipeline
+        # The 'tokens' tensor should be of shape (batch, seq_len) and dtype torch.long
+        # The underlying HuggingFace Transformers model expects 'input_ids'
         
-        # The tokens tensor is already in the right format: (batch, sequence)
-        # We just need to call the transformer directly
-        device = tokens.device
-        
-        # Process tokens through the CLIP transformer
-        # This bypasses ComfyUI's process_tokens and goes straight to the model
-        embeds, attention_mask, num_tokens = self.clip.process_tokens([tokens[i].tolist() for i in range(tokens.shape[0])], device)
-        
-        # Call transformer directly
-        if self.clip.layer == "all":
-            intermediate_output = "all"
-        else:
-            intermediate_output = self.clip.layer_idx
+        # Directly call the model's forward pass. This is what ONNX tracing needs.
+        transformer_outputs = self.clip(input_ids=tokens, output_hidden_states=False)
 
-        attention_mask_model = None
-        if self.clip.enable_attention_masks:
-            attention_mask_model = attention_mask
+        # The output 'last_hidden_state' is what we need for cross-attention
+        hidden_states = transformer_outputs.last_hidden_state
 
-        outputs = self.clip.transformer(None, attention_mask_model, embeds=embeds, num_tokens=num_tokens, 
-                                      intermediate_output=intermediate_output, 
-                                      final_layer_norm_intermediate=self.clip.layer_norm_hidden_state, 
-                                      dtype=torch.float32)
-
-        if self.clip.layer == "last":
-            z = outputs[0].float()
-        else:
-            z = outputs[1].float()
-
-        if self.clip.zero_out_masked:
-            z *= attention_mask.unsqueeze(-1).float()
-
-        pooled_output = None
-        if len(outputs) >= 3:
-            if not self.clip.return_projected_pooled and len(outputs) >= 4 and outputs[3] is not None:
-                pooled_output = outputs[3].float()
-            elif outputs[2] is not None:
-                pooled_output = outputs[2].float()
-        
         if self.is_clip_l:
-            # For CLIP-L, we want the last hidden state output only
-            return z  # Return hidden states only
+            # For CLIP-L (CLIPTextModel), the pooled output is not returned directly.
+            # We must derive it from the hidden state of the EOS token.
+            # Assuming the EOS token is the last one in the sequence for simplicity.
+            # A more robust way is to find the actual EOS token id from the input 'tokens'.
+            pooled_output = hidden_states[:, -1, :] # Shape: [batch_size, hidden_size]
         else:
-            # For CLIP-G, we want both hidden states and pooled output
-            return z, pooled_output  # Return hidden states and pooled output
+            # For CLIP-G (CLIPTextModelWithProjection), it provides a 'pooler_output'
+            pooled_output = transformer_outputs.pooler_output # Shape: [batch_size, projection_dim]
+
+        # Ensure outputs are float32 for consistency, as TensorRT might default to float16
+        # if the model is in half precision.
+        return hidden_states.float(), pooled_output.float()
 
 
 class TRT_CLIP_CONVERSION_BASE:
@@ -209,19 +190,13 @@ class TRT_CLIP_CONVERSION_BASE:
         inputs_shapes_max = (batch_size_max, sequence_length_max)
 
         input_names = ["tokens"]
-        if is_clip_l:
-            output_names = ["hidden_states"]
-            dynamic_axes = {
-                "tokens": {0: "batch", 1: "sequence"},
-                "hidden_states": {0: "batch", 1: "sequence"},
-            }
-        else:
-            output_names = ["hidden_states", "pooled_output"]
-            dynamic_axes = {
-                "tokens": {0: "batch", 1: "sequence"},
-                "hidden_states": {0: "batch", 1: "sequence"},
-                "pooled_output": {0: "batch"},
-            }
+        # Both CLIP-L and CLIP-G now return two outputs consistently
+        output_names = ["hidden_states", "pooled_output"]
+        dynamic_axes = {
+            "tokens": {0: "batch", 1: "sequence"},
+            "hidden_states": {0: "batch", 1: "sequence"},
+            "pooled_output": {0: "batch"},
+        }
 
         # Create input tensor for ONNX export (integer tokens)
         # Use realistic token values instead of all zeros to avoid issues

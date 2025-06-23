@@ -71,8 +71,17 @@ class TrTCLIPL:
             is_input = self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT
             print(f"  {i}: {tensor_name} - {'INPUT' if is_input else 'OUTPUT'} - shape: {tensor_shape}")
         
-        # Use the actual input tensor name from the engine
-        input_tensor_name = self.engine.get_tensor_name(0)  # First tensor should be input
+        # Find the actual input tensor name from the engine
+        input_tensor_name = None
+        for i in range(self.engine.num_io_tensors):
+            tensor_name = self.engine.get_tensor_name(i)
+            if self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT:
+                input_tensor_name = tensor_name
+                break
+        
+        if input_tensor_name is None:
+            raise RuntimeError("No input tensor found in TensorRT CLIP-L engine")
+            
         model_inputs = {input_tensor_name: tokens}
         batch_size = tokens.shape[0]
         print(f"TrTCLIPL - Using input tensor name: {input_tensor_name}")
@@ -101,43 +110,72 @@ class TrTCLIPL:
             model_inputs_converted[k] = model_inputs[k].to(dtype=trt_datatype_to_torch(data_type))
             print(f"TrTCLIPL - Input '{k}' converted to dtype: {trt_datatype_to_torch(data_type)}")
 
-        # Get output tensor info - find the output tensor
-        output_binding_name = None
+        # Get output tensor info - CLIP-L now has 2 outputs (hidden_states, pooled_output)
+        # Find output tensors dynamically
+        output_tensors = []
         for i in range(self.engine.num_io_tensors):
             tensor_name = self.engine.get_tensor_name(i)
             if self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.OUTPUT:
-                output_binding_name = tensor_name
-                break
+                output_tensors.append(tensor_name)
         
-        if output_binding_name is None:
-            raise RuntimeError("No output tensor found in TensorRT engine")
+        if len(output_tensors) < 2:
+            raise RuntimeError(f"Expected 2 output tensors for CLIP-L, found {len(output_tensors)}")
             
-        out_shape = self.engine.get_tensor_shape(output_binding_name)
-        out_shape = list(out_shape)
-        print(f"TrTCLIPL - Using output tensor name: {output_binding_name}")
-        print(f"TrTCLIPL - Initial output shape from engine: {out_shape}")
+        hidden_states_name = output_tensors[0]  # First output is hidden states
+        pooled_output_name = output_tensors[1]  # Second output is pooled output
+        
+        hidden_shape = self.engine.get_tensor_shape(hidden_states_name)
+        pooled_shape = self.engine.get_tensor_shape(pooled_output_name)
+        
+        hidden_shape = list(hidden_shape)
+        pooled_shape = list(pooled_shape)
+        
+        print(f"TrTCLIPL - Initial hidden shape from engine: {hidden_shape}")
+        print(f"TrTCLIPL - Initial pooled shape from engine: {pooled_shape}")
 
-        # Handle dynamic shapes
-        for idx in range(len(out_shape)):
-            if out_shape[idx] == -1:
+        # Handle dynamic shapes for hidden states
+        for idx in range(len(hidden_shape)):
+            if hidden_shape[idx] == -1:
                 if idx == 0:  # batch
-                    out_shape[idx] = tokens.shape[0]
+                    hidden_shape[idx] = tokens.shape[0]
                 elif idx == 1:  # sequence
-                    out_shape[idx] = tokens.shape[1]
+                    hidden_shape[idx] = tokens.shape[1]
                 elif idx == 2:  # hidden_size
-                    out_shape[idx] = 768  # CLIP-L hidden size
+                    hidden_shape[idx] = 768  # CLIP-L hidden size
                 else:
-                    out_shape[idx] = tokens.shape[idx]
+                    hidden_shape[idx] = tokens.shape[idx]
             else:
                 if idx == 0:
-                    out_shape[idx] *= curr_split_batch
-        print(f"TrTCLIPL - Final output shape after dynamic handling: {out_shape}")
+                    hidden_shape[idx] *= curr_split_batch
 
-        out = torch.empty(out_shape,
-                          device=tokens.device,
-                          dtype=trt_datatype_to_torch(self.engine.get_tensor_dtype(output_binding_name)))
-        model_inputs_converted[output_binding_name] = out
-        print(f"TrTCLIPL - Created output tensor: shape={out.shape}, dtype={out.dtype}")
+        # Handle dynamic shapes for pooled output
+        for idx in range(len(pooled_shape)):
+            if pooled_shape[idx] == -1:
+                if idx == 0:  # batch
+                    pooled_shape[idx] = tokens.shape[0]
+                elif idx == 1:  # pooled dimension
+                    pooled_shape[idx] = 768  # CLIP-L pooled dimension
+                else:
+                    pooled_shape[idx] = tokens.shape[idx]
+            else:
+                if idx == 0:
+                    pooled_shape[idx] *= curr_split_batch
+
+        print(f"TrTCLIPL - Final hidden shape after dynamic handling: {hidden_shape}")
+        print(f"TrTCLIPL - Final pooled shape after dynamic handling: {pooled_shape}")
+
+        hidden_out = torch.empty(hidden_shape,
+                               device=tokens.device,
+                               dtype=trt_datatype_to_torch(self.engine.get_tensor_dtype(hidden_states_name)))
+        pooled_out = torch.empty(pooled_shape,
+                               device=tokens.device,
+                               dtype=trt_datatype_to_torch(self.engine.get_tensor_dtype(pooled_output_name)))
+        
+        model_inputs_converted[hidden_states_name] = hidden_out
+        model_inputs_converted[pooled_output_name] = pooled_out
+        
+        print(f"TrTCLIPL - Created hidden tensor: shape={hidden_out.shape}, dtype={hidden_out.dtype}")
+        print(f"TrTCLIPL - Created pooled tensor: shape={pooled_out.shape}, dtype={pooled_out.dtype}")
 
         # Execute inference
         stream = torch.cuda.default_stream(tokens.device)
@@ -147,8 +185,8 @@ class TrTCLIPL:
                 self.context.set_tensor_address(k, tensor[(tensor.shape[0] // curr_split_batch) * i:].data_ptr())
             self.context.execute_async_v3(stream_handle=stream.cuda_stream)
 
-        print(f"TrTCLIPL - Inference complete, returning tensor: {out.shape}")
-        return out, None  # CLIP-L doesn't have pooled output
+        print(f"TrTCLIPL - Inference complete, returning tensors: {hidden_out.shape}, {pooled_out.shape}")
+        return hidden_out, pooled_out
 
     def unload(self):
         engine_obj = self.engine
@@ -204,8 +242,17 @@ class TrTCLIPG:
             is_input = self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT
             print(f"  {i}: {tensor_name} - {'INPUT' if is_input else 'OUTPUT'} - shape: {tensor_shape}")
         
-        # Use the actual input tensor name from the engine
-        input_tensor_name = self.engine.get_tensor_name(0)  # First tensor should be input
+        # Find the actual input tensor name from the engine
+        input_tensor_name = None
+        for i in range(self.engine.num_io_tensors):
+            tensor_name = self.engine.get_tensor_name(i)
+            if self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT:
+                input_tensor_name = tensor_name
+                break
+        
+        if input_tensor_name is None:
+            raise RuntimeError("No input tensor found in TensorRT CLIP-G engine")
+            
         model_inputs = {input_tensor_name: tokens}
         batch_size = tokens.shape[0]
         print(f"TrTCLIPG - Using input tensor name: {input_tensor_name}")
@@ -368,11 +415,9 @@ class TrTCLIP(torch.nn.Module):
                 tokens_l = tokens_l.to(device=self.device, dtype=torch.long)
                 l_out, l_pooled = self.clip_l(tokens_l)
                 l_out = l_out.to(dtype=torch.float32)
-                if l_pooled is not None:
-                    l_pooled = l_pooled.to(dtype=torch.float32)
-                else:
-                    l_pooled = torch.zeros((tokens_l.shape[0], 768), device=self.device, dtype=torch.float32)
+                l_pooled = l_pooled.to(dtype=torch.float32)
             else:
+                # Initialize default CLIP-L outputs if not available
                 l_pooled = torch.zeros((1, 768), device=self.device, dtype=torch.float32)
                 
             # Process CLIP-G tokens  
@@ -384,9 +429,11 @@ class TrTCLIP(torch.nn.Module):
                 g_out = g_out.to(dtype=torch.float32)
                 g_pooled = g_pooled.to(dtype=torch.float32)
             else:
+                # Initialize default CLIP-G outputs if not available
                 g_pooled = torch.zeros((1, 1280), device=self.device, dtype=torch.float32)
                 
-            # Combine outputs like SDXL
+            # SDXL Cross-Attention Context: Concatenate CLIP-L and CLIP-G hidden states
+            # This creates the 2048-dim tensor for cross-attention (768 + 1280 = 2048)
             if l_out is not None and g_out is not None:
                 cut_to = min(l_out.shape[1], g_out.shape[1])
                 combined_out = torch.cat([l_out[:,:cut_to], g_out[:,:cut_to]], dim=-1)
@@ -397,8 +444,24 @@ class TrTCLIP(torch.nn.Module):
             else:
                 combined_out = torch.zeros((1, 77, 2048), device=self.device, dtype=torch.float32)
                 
-            # Combine pooled outputs
-            pooled = torch.cat((l_pooled, g_pooled), dim=-1)
+            # SDXL Pooled Text Embeddings: Concatenate CLIP-L and CLIP-G pooled outputs
+            # This creates the 2048-dim pooled vector (768 + 1280 = 2048)
+            # The UNet will later combine this with time/resolution conditioning (256 dims) 
+            # to get the final 2304-dim additional conditioning vector
+            if l_out is not None and g_out is not None:
+                # For SDXL Base: concatenate CLIP-L pooled (768) + CLIP-G pooled (1280) = 2048
+                # Both l_pooled and g_pooled are now directly available from TensorRT engines
+                pooled = torch.cat([l_pooled, g_pooled], dim=-1)
+            elif g_out is not None:
+                # Only CLIP-G available, pad with zeros for CLIP-L part
+                l_pooled_zeros = torch.zeros((g_pooled.shape[0], 768), device=self.device, dtype=torch.float32)
+                pooled = torch.cat([l_pooled_zeros, g_pooled], dim=-1)
+            elif l_out is not None:
+                # Only CLIP-L available, this shouldn't happen in SDXL but handle gracefully
+                g_pooled_zeros = torch.zeros((l_pooled.shape[0], 1280), device=self.device, dtype=torch.float32)
+                pooled = torch.cat([l_pooled, g_pooled_zeros], dim=-1)
+            else:
+                pooled = torch.zeros((1, 2048), device=self.device, dtype=torch.float32)
             
             return combined_out, pooled
         else:
@@ -407,7 +470,7 @@ class TrTCLIP(torch.nn.Module):
                 tokens = self._convert_token_weights_to_tokens(token_weight_pairs)
                 tokens = tokens.to(device=self.device, dtype=torch.long)
                 out, pooled = self.clip_l(tokens)
-                return out.to(dtype=torch.float32), pooled.to(dtype=torch.float32) if pooled is not None else None
+                return out.to(dtype=torch.float32), pooled.to(dtype=torch.float32)
             elif self.clip_g:
                 tokens = self._convert_token_weights_to_tokens(token_weight_pairs)
                 tokens = tokens.to(device=self.device, dtype=torch.long)
