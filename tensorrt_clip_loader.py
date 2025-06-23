@@ -419,7 +419,6 @@ class TensorRTCLIPLoader:
         
         return {
             "required": {
-                "clip": ("CLIP",),
                 "clip_l_name": (clip_l_files,),
                 "clip_g_name": (clip_g_files,),
             },
@@ -429,7 +428,7 @@ class TensorRTCLIPLoader:
     FUNCTION = "load_clip"
     CATEGORY = "TensorRT"
 
-    def load_clip(self, clip, clip_l_name, clip_g_name):
+    def load_clip(self, clip_l_name, clip_g_name):
         clip_l_path = None
         clip_g_path = None
         
@@ -447,16 +446,25 @@ class TensorRTCLIPLoader:
             raise ValueError("At least one of CLIP-L or CLIP-G must be specified")
         
         # Create TensorRT CLIP wrapper
-        trt_clip_model = TrTCLIP(clip_l_path, clip_g_path, clip)
+        trt_clip_model = TrTCLIP(clip_l_path, clip_g_path, None)
         
-        # Replace the original CLIP's cond_stage_model with our TensorRT version
+        # Create a new CLIP object with TensorRT backend
+        # Use SDXL tokenizer since we're supporting dual CLIP (L and G)
+        from comfy.sdxl_clip import SDXLTokenizer
+        from comfy.model_patcher import ModelPatcher
+        
+        # Create a dummy patcher for compatibility
+        dummy_patcher = ModelPatcher(trt_clip_model, 
+                                   load_device=comfy.model_management.get_torch_device(),
+                                   offload_device=comfy.model_management.text_encoder_offload_device())
+        
         new_clip = comfy.sd.CLIP(no_init=True)
         new_clip.cond_stage_model = trt_clip_model
-        new_clip.tokenizer = clip.tokenizer
-        new_clip.patcher = clip.patcher
-        new_clip.layer_idx = clip.layer_idx
-        new_clip.use_clip_schedule = clip.use_clip_schedule
-        new_clip.tokenizer_options = clip.tokenizer_options
+        new_clip.tokenizer = SDXLTokenizer()
+        new_clip.patcher = dummy_patcher
+        new_clip.layer_idx = None
+        new_clip.use_clip_schedule = False
+        new_clip.tokenizer_options = {}
         
         return (new_clip,)
 

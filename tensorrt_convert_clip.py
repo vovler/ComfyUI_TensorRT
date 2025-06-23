@@ -116,6 +116,9 @@ class TRT_CLIP_CONVERSION_BASE:
         clip_model = clip.cond_stage_model
         device = comfy.model_management.get_torch_device()
         
+        # Force load the CLIP model to ensure it's on the correct device
+        comfy.model_management.load_models_gpu([clip], force_patch_weights=True, force_full_load=True)
+        
         # Get the CLIP model's native dtype and use it for consistency
         # Check the dtype of the first parameter to determine model dtype
         if is_clip_l:
@@ -125,13 +128,28 @@ class TRT_CLIP_CONVERSION_BASE:
             
         model_dtype = next(clip_component.parameters()).dtype
         
-        # Move CLIP to device and ensure consistent dtype
+        # Ensure all model parameters are on the same device
         clip_component = clip_component.to(device=device, dtype=model_dtype)
+        
+        # Force all buffers and parameters to be on the same device
+        for name, param in clip_component.named_parameters():
+            if param.device != device:
+                param.data = param.data.to(device=device, dtype=model_dtype)
+        
+        for name, buffer in clip_component.named_buffers():
+            if buffer.device != device:
+                buffer.data = buffer.data.to(device=device, dtype=model_dtype)
         
         dtype = model_dtype
 
         # Create wrapper for the CLIP part we want to convert
         clip_wrapper = CLIPWrapper(clip_component, is_clip_l=is_clip_l)
+        
+        # Set model to evaluation mode to avoid any training-specific behavior
+        clip_wrapper.eval()
+        
+        # Ensure wrapper is on the correct device
+        clip_wrapper = clip_wrapper.to(device=device)
 
         # Input shapes for CLIP (token sequences)
         inputs_shapes_min = (batch_size_min, sequence_length_min)
@@ -169,17 +187,20 @@ class TRT_CLIP_CONVERSION_BASE:
 
         os.makedirs(os.path.dirname(output_onnx), exist_ok=True)
         
-        # Export to ONNX
-        torch.onnx.export(
-            clip_wrapper,
-            (input_tensor,),
-            output_onnx,
-            verbose=False,
-            input_names=input_names,
-            output_names=output_names,
-            opset_version=17,
-            dynamic_axes=dynamic_axes,
-        )
+        # Export to ONNX with no_grad context to avoid gradient computation
+        with torch.no_grad():
+            torch.onnx.export(
+                clip_wrapper,
+                (input_tensor,),
+                output_onnx,
+                verbose=False,
+                input_names=input_names,
+                output_names=output_names,
+                opset_version=17,
+                dynamic_axes=dynamic_axes,
+                do_constant_folding=True,  # Enable constant folding for optimization
+                export_params=True,  # Export model parameters
+            )
 
         comfy.model_management.unload_all_models()
         comfy.model_management.soft_empty_cache()
