@@ -318,6 +318,10 @@ class TrTCLIPG:
         hidden_shape = self.engine.get_tensor_shape(hidden_states_name)
         pooled_shape = self.engine.get_tensor_shape(pooled_output_name)
         
+        # DEBUG: Print raw shapes from engine
+        print(f"TrTCLIPG - RAW hidden_shape from engine: {hidden_shape} (type: {type(hidden_shape)})")
+        print(f"TrTCLIPG - RAW pooled_shape from engine: {pooled_shape} (type: {type(pooled_shape)})")
+        
         hidden_shape = list(hidden_shape)
         pooled_shape = list(pooled_shape)
         
