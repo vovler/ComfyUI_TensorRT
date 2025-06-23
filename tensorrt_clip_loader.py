@@ -376,20 +376,65 @@ class TrTCLIP(torch.nn.Module):
 
     def _convert_token_weights_to_tokens(self, token_weight_pairs):
         """Convert token weight pairs to tokens tensor"""
+        print(f"DEBUG: _convert_token_weights_to_tokens called with {len(token_weight_pairs)} items")
+        
         # This is a simplified conversion - in practice you'd want to handle weights properly
         if len(token_weight_pairs) == 0:
+            print("DEBUG: Empty token_weight_pairs, returning default tensor")
             return torch.zeros((1, 77), dtype=torch.long, device=self.device)
             
         batch_size = len(token_weight_pairs)
-        max_length = max(len(tokens) for tokens, _ in token_weight_pairs)
+        print(f"DEBUG: batch_size = {batch_size}")
+        
+        # Debug: print the structure of the first few items
+        for i, item in enumerate(token_weight_pairs[:3]):  # Only print first 3 for brevity
+            print(f"DEBUG: Item {i}: type={type(item)}, len={len(item) if hasattr(item, '__len__') else 'N/A'}")
+            if hasattr(item, '__len__') and len(item) > 0:
+                print(f"DEBUG: Item {i} first element: type={type(item[0])}, value={item[0] if not hasattr(item[0], '__len__') or len(str(item[0])) < 100 else str(item[0])[:100]}")
+        
+        # Handle different token weight pair formats
+        # ComfyUI can return various formats: (tokens, weights), (tokens, weights, word_ids), etc.
+        max_length = 0
+        for i, item in enumerate(token_weight_pairs):
+            try:
+                if isinstance(item, (list, tuple)) and len(item) >= 1:
+                    # First element should be tokens
+                    tokens = item[0]
+                    if isinstance(tokens, (list, tuple)):
+                        max_length = max(max_length, len(tokens))
+                        print(f"DEBUG: Item {i} tokens length: {len(tokens)}")
+                    else:
+                        print(f"DEBUG: Item {i} first element is not a list/tuple: {type(tokens)}")
+                else:
+                    print(f"DEBUG: Item {i} is not a list/tuple or is empty: {type(item)}")
+            except Exception as e:
+                print(f"DEBUG: Error processing item {i}: {e}")
+                    
         max_length = min(max_length, 77)  # CLIP max length
+        if max_length == 0:
+            max_length = 77  # Default fallback
+            
+        print(f"DEBUG: max_length = {max_length}")
         
         tokens_tensor = torch.zeros((batch_size, max_length), dtype=torch.long, device=self.device)
         
-        for i, (tokens, weights) in enumerate(token_weight_pairs):
-            length = min(len(tokens), max_length)
-            tokens_tensor[i, :length] = torch.tensor(tokens[:length], dtype=torch.long, device=self.device)
+        for i, item in enumerate(token_weight_pairs):
+            try:
+                if isinstance(item, (list, tuple)) and len(item) >= 1:
+                    # Extract tokens from the first element
+                    tokens = item[0]
+                    if isinstance(tokens, (list, tuple)):
+                        length = min(len(tokens), max_length)
+                        tokens_tensor[i, :length] = torch.tensor(tokens[:length], dtype=torch.long, device=self.device)
+                        print(f"DEBUG: Processed item {i}: extracted {length} tokens")
+                    else:
+                        print(f"DEBUG: Skipping item {i}: tokens not a list/tuple")
+                else:
+                    print(f"DEBUG: Skipping item {i}: item not properly formatted")
+            except Exception as e:
+                print(f"DEBUG: Error converting item {i}: {e}")
             
+        print(f"DEBUG: Final tokens_tensor shape: {tokens_tensor.shape}")
         return tokens_tensor
 
     def load_sd(self, sd):
