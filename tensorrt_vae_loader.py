@@ -294,16 +294,31 @@ class TrTVAE:
         images = self.decoder(x)
         print(f"TensorRT VAE Decoder output - shape: {images.shape}, dtype: {images.dtype}, device: {images.device}")
         
+        # Convert to float32 FIRST to avoid precision issues with bfloat16
+        images = images.to(dtype=torch.float32)
+        
+        # Check for and handle invalid values
+        if torch.isnan(images).any():
+            print("Warning: NaN values detected in VAE decoder output, replacing with zeros")
+            images = torch.nan_to_num(images, nan=0.0)
+        
+        if torch.isinf(images).any():
+            print("Warning: Infinite values detected in VAE decoder output, clamping")
+            images = torch.clamp(images, -10.0, 10.0)
+        
         # Convert output from [-1, 1] to [0, 1] range
         images = (images + 1.0) / 2.0
         images = torch.clamp(images, 0.0, 1.0)
         
+        # Final check for invalid values after conversion
+        if torch.isnan(images).any() or torch.isinf(images).any():
+            print("Warning: Invalid values after conversion, clamping to valid range")
+            images = torch.nan_to_num(images, nan=0.0, posinf=1.0, neginf=0.0)
+            images = torch.clamp(images, 0.0, 1.0)
+        
         # Convert from (batch, channels, height, width) to (batch, height, width, channels) for ComfyUI
         images = images.permute(0, 2, 3, 1)
         print(f"After permute to BHWC format: {images.shape}")
-        
-        # Convert to float32 for compatibility with ComfyUI image processing
-        images = images.to(dtype=torch.float32)
         
         return images
 
