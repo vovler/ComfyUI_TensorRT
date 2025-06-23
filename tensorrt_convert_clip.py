@@ -26,9 +26,6 @@ else:
     )
 
 
-
-
-
 class TRT_CLIP_CONVERSION_BASE:
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
@@ -36,6 +33,10 @@ class TRT_CLIP_CONVERSION_BASE:
         self.timing_cache_path = os.path.normpath(
             os.path.join(os.path.join(os.path.dirname(os.path.realpath(__file__)), "timing_cache_clip.trt"))
         )
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        raise NotImplementedError
 
     # Sets up the builder to use the timing cache file, and creates it if it does not already exist
     def _setup_timing_cache(self, config: trt.IBuilderConfig):
@@ -75,63 +76,29 @@ class TRT_CLIP_CONVERSION_BASE:
         )
 
         comfy.model_management.unload_all_models()
+        comfy.model_management.load_models_gpu([clip], force_patch_weights=True, force_full_load=True)
         
-        # Load CLIP to GPU
         clip_model = clip.cond_stage_model
         device = comfy.model_management.get_torch_device()
-        
-        # Load the CLIP model using the patcher instead of direct model management
-        if hasattr(clip, 'patcher') and clip.patcher is not None:
-            clip.patcher.patch_model(device_to=device, force_patch_weights=True)
-            print(f"CLIP model moved to device: {device}")
-        else:
-            # Fallback: manually move the CLIP model to device
-            clip_model = clip_model.to(device=device)
-            print(f"CLIP model moved to device - FALLBACK: {device}")
-        
-        # Debug: Print CLIP model structure
-        print(f"CLIP model type: {type(clip_model)}")
-        print(f"CLIP model attributes: {dir(clip_model)}")
-        if hasattr(clip_model, 'clip_l'):
-            print(f"Has clip_l: {type(clip_model.clip_l)}")
-        if hasattr(clip_model, 'clip_g'):
-            print(f"Has clip_g: {type(clip_model.clip_g)}")
-            
-        # Force fp16 for all CLIP components to ensure consistency and avoid NaN issues
         dtype = torch.float16
-        print(f"Forcing CLIP dtype to: {dtype}")
         
+        # Get the correct CLIP component based on model structure
         if is_clip_l:
             if hasattr(clip_model, 'clip_l'):
                 clip_component = clip_model.clip_l
-                print(f"Using CLIP-L component: {type(clip_component)}")
+            elif hasattr(clip_model, 'clip') and hasattr(clip_model, 'clip_name') and clip_model.clip_name == "l":
+                clip_component = getattr(clip_model, clip_model.clip)
             else:
-                # For single CLIP models, use the model directly
                 clip_component = clip_model
-                print(f"Using single CLIP model as CLIP-L: {type(clip_component)}")
         else:
             if hasattr(clip_model, 'clip_g'):
                 clip_component = clip_model.clip_g
-                print(f"Using CLIP-G component: {type(clip_component)}")
+            elif hasattr(clip_model, 'clip') and hasattr(clip_model, 'clip_name') and clip_model.clip_name == "g":
+                clip_component = getattr(clip_model, clip_model.clip)
             else:
-                # For single CLIP models, use the model directly
                 clip_component = clip_model
-                print(f"Using single CLIP model as CLIP-G: {type(clip_component)}")
         
-        # Ensure all model parameters are on the same device with fp16 dtype
         clip_component = clip_component.to(device=device, dtype=dtype)
-        print(f"CLIP component moved to device: {device} with dtype: {dtype}")
-        
-        # Force all buffers and parameters to be on the same device with fp16 dtype
-        for name, param in clip_component.named_parameters():
-            if param.device != device or param.dtype != dtype:
-                param.data = param.data.to(device=device, dtype=dtype)
-        
-        for name, buffer in clip_component.named_buffers():
-            if buffer.device != device or buffer.dtype != dtype:
-                buffer.data = buffer.data.to(device=device, dtype=dtype)
-
-        # Use clip_component directly - no wrapper needed
         model_to_export = clip_component
 
         # Input shapes for CLIP (token sequences)
@@ -140,7 +107,6 @@ class TRT_CLIP_CONVERSION_BASE:
         inputs_shapes_max = (batch_size_max, sequence_length_max)
 
         input_names = ["tokens"]
-        # Both CLIP-L and CLIP-G now return two outputs consistently
         output_names = ["hidden_states", "pooled_output"]
         dynamic_axes = {
             "tokens": {0: "batch", 1: "sequence"},
@@ -152,7 +118,6 @@ class TRT_CLIP_CONVERSION_BASE:
 
         os.makedirs(os.path.dirname(output_onnx), exist_ok=True)
         
-        # Export to ONNX with no_grad context to avoid gradient computation
         with torch.no_grad():
             torch.onnx.export(
                 model_to_export,
@@ -163,14 +128,8 @@ class TRT_CLIP_CONVERSION_BASE:
                 output_names=output_names,
                 opset_version=17,
                 dynamic_axes=dynamic_axes,
-                do_constant_folding=True,  # Enable constant folding for optimization
-                export_params=True,  # Export model parameters
             )
 
-        # Unload the CLIP model using the patcher
-        if hasattr(clip, 'patcher') and clip.patcher is not None:
-            clip.patcher.unpatch_model()
-        
         comfy.model_management.unload_all_models()
         comfy.model_management.soft_empty_cache()
 
@@ -207,10 +166,7 @@ class TRT_CLIP_CONVERSION_BASE:
         
         profile.set_shape("tokens", min_shape, opt_shape, max_shape)
 
-        
         config.set_flag(trt.BuilderFlag.FP16)
-        
-
         config.add_optimization_profile(profile)
 
         # Generate filename
@@ -225,24 +181,6 @@ class TRT_CLIP_CONVERSION_BASE:
                         "b",
                         str(batch_size_opt),
                         "s",
-                        str(sequence_length_opt),
-                    )
-                ),
-            )
-        else:
-            filename_prefix = "{}_{}${}".format(
-                filename_prefix,
-                clip_type,
-                "-".join(
-                    (
-                        "dyn",
-                        "b",
-                        str(batch_size_min),
-                        str(batch_size_max),
-                        str(batch_size_opt),
-                        "s",
-                        str(sequence_length_min),
-                        str(sequence_length_max),
                         str(sequence_length_opt),
                     )
                 ),
@@ -265,9 +203,6 @@ class TRT_CLIP_CONVERSION_BASE:
         clip_type = "CLIP-L" if is_clip_l else "CLIP-G"
         print(f"TensorRT {clip_type} conversion complete! Engine saved to: {output_trt_engine}")
         return {}
-
-
-
 
 
 class STATIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):
@@ -332,16 +267,9 @@ class STATIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):
         return ()
 
 
-
-
-
 class STATIC_TRT_CLIP_G_CONVERSION(TRT_CLIP_CONVERSION_BASE):
     def __init__(self):
-        try:
-            super(STATIC_TRT_CLIP_G_CONVERSION, self).__init__()
-        except Exception as e:
-            print(f"STATIC_TRT_CLIP_G_CONVERSION - Error initializing: {e}")
-            raise e
+        super(STATIC_TRT_CLIP_G_CONVERSION, self).__init__()
 
     RETURN_TYPES = ()
     FUNCTION = "convert"
