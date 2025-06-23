@@ -370,15 +370,105 @@ class TrTCLIPG:
             del context_obj
 
 
+class TrTCLIPLWrapper:
+    """Wrapper that makes TrTCLIPL look like ComfyUI's SDClipModel"""
+    def __init__(self, clip_l_path, runtime):
+        self.engine = TrTCLIPL(clip_l_path, runtime)
+    
+    def encode_token_weights(self, token_weight_pairs):
+        # Convert ComfyUI token format to simple tokens tensor
+        tokens = self._convert_token_weights_to_tokens(token_weight_pairs)
+        tokens = tokens.to(device=torch.device('cuda'), dtype=torch.long)
+        hidden_states, pooled_output = self.engine(tokens)
+        return hidden_states.to(dtype=torch.float32), pooled_output.to(dtype=torch.float32)
+    
+    @property
+    def size(self):
+        return self.engine.size
+    
+    def load(self):
+        return self.engine.load()
+    
+    def unload(self):
+        return self.engine.unload()
+    
+    def _convert_token_weights_to_tokens(self, token_weight_pairs):
+        if len(token_weight_pairs) == 0:
+            return torch.zeros((1, 77), dtype=torch.long)
+        batch_size = len(token_weight_pairs)
+        max_length = 77
+        tokens_tensor = torch.zeros((batch_size, max_length), dtype=torch.long)
+        for i, item in enumerate(token_weight_pairs):
+            if isinstance(item, (list, tuple)):
+                tokens_list = []
+                for token_weight in item:
+                    if isinstance(token_weight, (list, tuple)) and len(token_weight) >= 1:
+                        tokens_list.append(int(token_weight[0]))
+                    elif isinstance(token_weight, (int, float)):
+                        tokens_list.append(int(token_weight))
+                if len(tokens_list) < max_length:
+                    tokens_list.extend([0] * (max_length - len(tokens_list)))
+                elif len(tokens_list) > max_length:
+                    tokens_list = tokens_list[:max_length]
+                tokens_tensor[i, :] = torch.tensor(tokens_list, dtype=torch.long)
+        return tokens_tensor
+
+
+class TrTCLIPGWrapper:
+    """Wrapper that makes TrTCLIPG look like ComfyUI's SDClipModel"""
+    def __init__(self, clip_g_path, runtime):
+        self.engine = TrTCLIPG(clip_g_path, runtime)
+    
+    def encode_token_weights(self, token_weight_pairs):
+        # Convert ComfyUI token format to simple tokens tensor
+        tokens = self._convert_token_weights_to_tokens(token_weight_pairs)
+        tokens = tokens.to(device=torch.device('cuda'), dtype=torch.long)
+        hidden_states, pooled_output = self.engine(tokens)
+        return hidden_states.to(dtype=torch.float32), pooled_output.to(dtype=torch.float32)
+    
+    @property
+    def size(self):
+        return self.engine.size
+    
+    def load(self):
+        return self.engine.load()
+    
+    def unload(self):
+        return self.engine.unload()
+    
+    def _convert_token_weights_to_tokens(self, token_weight_pairs):
+        if len(token_weight_pairs) == 0:
+            return torch.zeros((1, 77), dtype=torch.long)
+        batch_size = len(token_weight_pairs)
+        max_length = 77
+        tokens_tensor = torch.zeros((batch_size, max_length), dtype=torch.long)
+        for i, item in enumerate(token_weight_pairs):
+            if isinstance(item, (list, tuple)):
+                tokens_list = []
+                for token_weight in item:
+                    if isinstance(token_weight, (list, tuple)) and len(token_weight) >= 1:
+                        tokens_list.append(int(token_weight[0]))
+                    elif isinstance(token_weight, (int, float)):
+                        tokens_list.append(int(token_weight))
+                if len(tokens_list) < max_length:
+                    tokens_list.extend([0] * (max_length - len(tokens_list)))
+                elif len(tokens_list) > max_length:
+                    tokens_list = tokens_list[:max_length]
+                tokens_tensor[i, :] = torch.tensor(tokens_list, dtype=torch.long)
+        return tokens_tensor
+
+
 class TrTCLIP(torch.nn.Module):
-    """TensorRT CLIP wrapper that combines CLIP-L and CLIP-G"""
+    """TensorRT CLIP wrapper that reuses ComfyUI's SDXL logic"""
     def __init__(self, clip_l_path=None, clip_g_path=None, original_clip=None):
         super().__init__()
-        self.clip_l = TrTCLIPL(clip_l_path, runtime) if clip_l_path else None
-        self.clip_g = TrTCLIPG(clip_g_path, runtime) if clip_g_path else None
+        
+        # Create TensorRT CLIP engines as mock CLIP models
+        self.clip_l = TrTCLIPLWrapper(clip_l_path, runtime) if clip_l_path else None
+        self.clip_g = TrTCLIPGWrapper(clip_g_path, runtime) if clip_g_path else None
         self.original_clip = original_clip
         
-        # CLIP properties
+        # CLIP properties (match SDXLClipModel)
         self.device = comfy.model_management.get_torch_device()
         self.offload_device = comfy.model_management.text_encoder_offload_device()
         self.dtype = torch.float16
@@ -393,155 +483,43 @@ class TrTCLIP(torch.nn.Module):
         pass
 
     def encode_token_weights(self, token_weight_pairs):
-        """Encode token weights using TensorRT CLIP models"""
-        
-        # Ensure engines are loaded before inference
+        """Use ComfyUI's exact SDXL logic - much cleaner!"""
         self._force_load_engines()
         
-        # Handle SDXL dual-clip structure
+        # Use ComfyUI's SDXLClipModel.encode_token_weights logic exactly
         if isinstance(token_weight_pairs, dict) and "l" in token_weight_pairs and "g" in token_weight_pairs:
-            token_weight_pairs_l = token_weight_pairs["l"]
             token_weight_pairs_g = token_weight_pairs["g"]
+            token_weight_pairs_l = token_weight_pairs["l"]
             
-            l_out = None
-            l_pooled = None
-            g_out = None
-            g_pooled = None
+            # Call our TensorRT wrappers that mimic ComfyUI's interface
+            g_out, g_pooled = self.clip_g.encode_token_weights(token_weight_pairs_g) if self.clip_g else (None, None)
+            l_out, l_pooled = self.clip_l.encode_token_weights(token_weight_pairs_l) if self.clip_l else (None, None)
             
-            # Process CLIP-L tokens
-            if self.clip_l and len(token_weight_pairs_l) > 0:
-                # Convert token weight pairs to tokens tensor
-                tokens_l = self._convert_token_weights_to_tokens(token_weight_pairs_l)
-                tokens_l = tokens_l.to(device=self.device, dtype=torch.long)
-                l_out, l_pooled = self.clip_l(tokens_l)
-                l_out = l_out.to(dtype=torch.float32)
-                l_pooled = l_pooled.to(dtype=torch.float32)
-            else:
-                # Initialize default CLIP-L outputs if not available
-                l_pooled = torch.zeros((1, 768), device=self.device, dtype=torch.float32)
-                
-            # Process CLIP-G tokens  
-            if self.clip_g and len(token_weight_pairs_g) > 0:
-                # Convert token weight pairs to tokens tensor
-                tokens_g = self._convert_token_weights_to_tokens(token_weight_pairs_g)
-                tokens_g = tokens_g.to(device=self.device, dtype=torch.long)
-                g_out, g_pooled = self.clip_g(tokens_g)
-                g_out = g_out.to(dtype=torch.float32)
-                g_pooled = g_pooled.to(dtype=torch.float32)
-            else:
-                # Initialize default CLIP-G outputs if not available
-                g_pooled = torch.zeros((1, 1280), device=self.device, dtype=torch.float32)
-                
-            # SDXL Cross-Attention Context: Concatenate CLIP-L and CLIP-G hidden states
-            # This creates the 2048-dim tensor for cross-attention (768 + 1280 = 2048)
+            # ComfyUI's exact concatenation logic from sdxl_clip.py line 60-61
             if l_out is not None and g_out is not None:
                 cut_to = min(l_out.shape[1], g_out.shape[1])
                 combined_out = torch.cat([l_out[:,:cut_to], g_out[:,:cut_to]], dim=-1)
             elif g_out is not None:
-                combined_out = torch.nn.functional.pad(g_out, (768, 0))
+                combined_out = torch.nn.functional.pad(g_out, (768, 0))  # Pad CLIP-G to 2048
             elif l_out is not None:
-                combined_out = l_out
+                combined_out = torch.nn.functional.pad(l_out, (0, 1280))  # Pad CLIP-L to 2048  
             else:
                 combined_out = torch.zeros((1, 77, 2048), device=self.device, dtype=torch.float32)
-                
-            # SDXL Pooled Text Embeddings: Concatenate CLIP-L and CLIP-G pooled outputs
-            # This creates the 2048-dim pooled vector (768 + 1280 = 2048)
-            # The UNet will later combine this with time/resolution conditioning (256 dims) 
-            # to get the final 2304-dim additional conditioning vector
-            if l_out is not None and g_out is not None:
-                # For SDXL Base: concatenate CLIP-L pooled (768) + CLIP-G pooled (1280) = 2048
-                # Both l_pooled and g_pooled are now directly available from TensorRT engines
-                pooled = torch.cat([l_pooled, g_pooled], dim=-1)
-            elif g_out is not None:
-                # Only CLIP-G available, pad with zeros for CLIP-L part
-                l_pooled_zeros = torch.zeros((g_pooled.shape[0], 768), device=self.device, dtype=torch.float32)
-                pooled = torch.cat([l_pooled_zeros, g_pooled], dim=-1)
-            elif l_out is not None:
-                # Only CLIP-L available, this shouldn't happen in SDXL but handle gracefully
-                g_pooled_zeros = torch.zeros((l_pooled.shape[0], 1280), device=self.device, dtype=torch.float32)
-                pooled = torch.cat([l_pooled, g_pooled_zeros], dim=-1)
-            else:
-                pooled = torch.zeros((1, 2048), device=self.device, dtype=torch.float32)
+            
+            # ComfyUI returns g_pooled ONLY (not concatenated)
+            pooled = g_pooled if g_pooled is not None else torch.zeros((1, 1280), device=self.device, dtype=torch.float32)
             
             return combined_out, pooled
         else:
-            # Single CLIP model handling
+            # Single CLIP handling
             if self.clip_l:
-                tokens = self._convert_token_weights_to_tokens(token_weight_pairs)
-                tokens = tokens.to(device=self.device, dtype=torch.long)
-                out, pooled = self.clip_l(tokens)
-                return out.to(dtype=torch.float32), pooled.to(dtype=torch.float32)
+                return self.clip_l.encode_token_weights(token_weight_pairs)
             elif self.clip_g:
-                tokens = self._convert_token_weights_to_tokens(token_weight_pairs)
-                tokens = tokens.to(device=self.device, dtype=torch.long)
-                out, pooled = self.clip_g(tokens)
-                return out.to(dtype=torch.float32), pooled.to(dtype=torch.float32)
+                return self.clip_g.encode_token_weights(token_weight_pairs)
             else:
                 raise RuntimeError("No TensorRT CLIP models loaded")
 
-    def _convert_token_weights_to_tokens(self, token_weight_pairs):
-        """Convert token weight pairs to tokens tensor"""
-        print(f"DEBUG: _convert_token_weights_to_tokens called with {len(token_weight_pairs)} items")
-        
-        # This is a simplified conversion - in practice you'd want to handle weights properly
-        if len(token_weight_pairs) == 0:
-            print("DEBUG: Empty token_weight_pairs, returning default tensor")
-            return torch.zeros((1, 77), dtype=torch.long, device=self.device)
-            
-        batch_size = len(token_weight_pairs)
-        print(f"DEBUG: batch_size = {batch_size}")
-        
-        # Debug: print the structure of the first few items
-        for i, item in enumerate(token_weight_pairs[:2]):  # Only print first 2 for brevity
-            print(f"DEBUG: Item {i}: type={type(item)}, len={len(item) if hasattr(item, '__len__') else 'N/A'}")
-            if hasattr(item, '__len__') and len(item) > 0:
-                first_few = item[:3] if len(item) > 3 else item
-                print(f"DEBUG: Item {i} first few elements: {first_few}")
-        
-        # Handle ComfyUI token weight pairs format
-        # Each item in token_weight_pairs is a list of (token_id, weight) tuples
-        max_length = 77  # Force CLIP standard length
-        
-        print(f"DEBUG: Using fixed max_length = {max_length}")
-        
-        tokens_tensor = torch.zeros((batch_size, max_length), dtype=torch.long, device=self.device)
-        
-        for i, item in enumerate(token_weight_pairs):
-            try:
-                if isinstance(item, (list, tuple)):
-                    # Each item is a list of (token_id, weight) tuples
-                    tokens_list = []
-                    for j, token_weight in enumerate(item):
-                        if isinstance(token_weight, (list, tuple)) and len(token_weight) >= 1:
-                            # Extract just the token ID (first element)
-                            token_id = token_weight[0]
-                            tokens_list.append(int(token_id))
-                        elif isinstance(token_weight, (int, float)):
-                            # Sometimes tokens might be passed as raw integers
-                            tokens_list.append(int(token_weight))
-                        else:
-                            print(f"DEBUG: Unexpected token_weight format at item {i}, pos {j}: {token_weight}")
-                    
-                    # Pad or truncate to max_length
-                    if len(tokens_list) < max_length:
-                        # Pad with zeros (or pad token)
-                        tokens_list.extend([0] * (max_length - len(tokens_list)))
-                    elif len(tokens_list) > max_length:
-                        # Truncate
-                        tokens_list = tokens_list[:max_length]
-                    
-                    tokens_tensor[i, :] = torch.tensor(tokens_list, dtype=torch.long, device=self.device)
-                    print(f"DEBUG: Processed item {i}: extracted {len(item)} token pairs -> {len(tokens_list)} tokens, final length {max_length}")
-                else:
-                    print(f"DEBUG: Skipping item {i}: item not a list/tuple, type={type(item)}")
-            except Exception as e:
-                print(f"DEBUG: Error converting item {i}: {e}")
-                import traceback
-                traceback.print_exc()
-            
-        print(f"DEBUG: Final tokens_tensor shape: {tokens_tensor.shape}")
-        print(f"DEBUG: Sample tokens from first sequence: {tokens_tensor[0, :10].tolist()}")
-        return tokens_tensor
+
 
     def load_sd(self, sd):
         """Load state dict (no-op for TensorRT)"""
