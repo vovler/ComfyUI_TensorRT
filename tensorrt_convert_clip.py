@@ -34,27 +34,25 @@ class CLIPWrapper(torch.nn.Module):
         self.is_clip_l = is_clip_l
 
     def forward(self, tokens):
-        # Create properly formatted tokens for CLIP model
-        # CLIP expects tokens in format: [[tokens, weights], ...]
+        # ComfyUI CLIP expects tokens to be a list of lists of integers
+        # Convert from tensor format to the expected list format
         batch_size, seq_len = tokens.shape
         
-        # Convert raw tokens to the format expected by ComfyUI CLIP
-        # Each batch item should be a list of [tokens, weights] pairs
-        token_weight_pairs = []
+        # Convert tensor to list format expected by ComfyUI CLIP
+        tokens_list = []
         for b in range(batch_size):
-            # Convert tokens to list and create weights (all 1.0)
+            # Convert each batch item to a list of integers
             token_list = tokens[b].cpu().tolist()
-            weights = [1.0] * seq_len
-            token_weight_pairs.append((token_list, weights))
+            tokens_list.append(token_list)
         
-        # Use encode_token_weights method instead of direct forward call
+        # Call the CLIP model directly with the token list
         if self.is_clip_l:
             # For CLIP-L, we want the last hidden state output
-            out, pooled = self.clip.encode_token_weights(token_weight_pairs)
+            out, pooled = self.clip(tokens_list)
             return out  # Return hidden states only
         else:
             # For CLIP-G, we want both hidden states and pooled output
-            out, pooled = self.clip.encode_token_weights(token_weight_pairs)
+            out, pooled = self.clip(tokens_list)
             return out, pooled  # Return hidden states and pooled output
 
 
