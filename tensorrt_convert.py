@@ -213,10 +213,7 @@ class TRT_MODEL_CONVERSION_BASE:
                 input_names[k], encode(min_shape_list), encode(opt_shape_list), encode(max_shape_list)
             )
 
-        if dtype == torch.float16:
-            config.set_flag(trt.BuilderFlag.FP16)
-        if dtype == torch.bfloat16:
-            config.set_flag(trt.BuilderFlag.BF16)
+        config.set_flag(trt.BuilderFlag.FP16)
 
         config.add_optimization_profile(profile)
 

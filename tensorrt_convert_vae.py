@@ -98,14 +98,12 @@ class TRT_VAE_CONVERSION_BASE:
         vae_model = vae.first_stage_model
         device = comfy.model_management.get_torch_device()
         
-        # Get the VAE model's native dtype and use it for consistency
-        # Check the dtype of the first parameter to determine model dtype
-        model_dtype = next(vae_model.parameters()).dtype
+        # Force fp16 for all VAE components to ensure consistency and avoid NaN issues
+        dtype = torch.float16
+        print(f"Forcing VAE dtype to: {dtype}")
         
-        # Move VAE to device and ensure consistent dtype
-        vae_model = vae_model.to(device=device, dtype=model_dtype)
-        
-        dtype = model_dtype
+        # Move VAE to device and ensure fp16 dtype
+        vae_model = vae_model.to(device=device, dtype=dtype)
 
         # Create wrapper for the VAE part we want to convert
         if is_encoder:
@@ -191,10 +189,7 @@ class TRT_VAE_CONVERSION_BASE:
         
         profile.set_shape("x", min_shape, opt_shape, max_shape)
 
-        if dtype == torch.float16:
-            config.set_flag(trt.BuilderFlag.FP16)
-        if dtype == torch.bfloat16:
-            config.set_flag(trt.BuilderFlag.BF16)
+        config.set_flag(trt.BuilderFlag.FP16)
 
         config.add_optimization_profile(profile)
 

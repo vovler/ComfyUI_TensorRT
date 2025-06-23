@@ -24,7 +24,7 @@ class SdUnet(torch.nn.Module):
 
 class TrTUnet:
     def __init__(self, engine_path, runtime):
-        self.dtype = torch.bfloat16
+        self.dtype = torch.float16
         self.engine_path = engine_path
         self.engine = None
         self.context = None

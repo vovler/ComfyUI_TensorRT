@@ -71,7 +71,7 @@ class CLIPWrapper(torch.nn.Module):
             num_tokens=None,      # Let it figure out EOS automatically
             intermediate_output=None,  # No intermediate outputs
             final_layer_norm_intermediate=True,
-            dtype=torch.float32
+            dtype=torch.float16
         )
         
         print(f"CLIPWrapper.forward: Transformer output type: {type(outputs)}, length: {len(outputs) if isinstance(outputs, tuple) else 'not tuple'}")
@@ -181,8 +181,10 @@ class TRT_CLIP_CONVERSION_BASE:
         if hasattr(clip_model, 'clip_g'):
             print(f"Has clip_g: {type(clip_model.clip_g)}")
             
-        # Get the CLIP model's native dtype and use it for consistency
-        # Check the dtype of the first parameter to determine model dtype
+        # Force fp16 for all CLIP components to ensure consistency and avoid NaN issues
+        dtype = torch.float16
+        print(f"Forcing CLIP dtype to: {dtype}")
+        
         if is_clip_l:
             if hasattr(clip_model, 'clip_l'):
                 clip_component = clip_model.clip_l
@@ -199,29 +201,19 @@ class TRT_CLIP_CONVERSION_BASE:
                 # For single CLIP models, use the model directly
                 clip_component = clip_model
                 print(f"Using single CLIP model as CLIP-G: {type(clip_component)}")
-                
-        # Check if the component has parameters
-        try:
-            model_dtype = next(clip_component.parameters()).dtype
-            print(f"Model dtype: {model_dtype}")
-        except StopIteration:
-            print("No parameters found in CLIP component!")
-            model_dtype = torch.float16  # Default fallback
         
-        # Ensure all model parameters are on the same device
-        clip_component = clip_component.to(device=device, dtype=model_dtype)
-        print(f"CLIP component moved to device: {device} with dtype: {model_dtype}")
+        # Ensure all model parameters are on the same device with fp16 dtype
+        clip_component = clip_component.to(device=device, dtype=dtype)
+        print(f"CLIP component moved to device: {device} with dtype: {dtype}")
         
-        # Force all buffers and parameters to be on the same device
+        # Force all buffers and parameters to be on the same device with fp16 dtype
         for name, param in clip_component.named_parameters():
-            if param.device != device:
-                param.data = param.data.to(device=device, dtype=model_dtype)
+            if param.device != device or param.dtype != dtype:
+                param.data = param.data.to(device=device, dtype=dtype)
         
         for name, buffer in clip_component.named_buffers():
-            if buffer.device != device:
-                buffer.data = buffer.data.to(device=device, dtype=model_dtype)
-        
-        dtype = model_dtype
+            if buffer.device != device or buffer.dtype != dtype:
+                buffer.data = buffer.data.to(device=device, dtype=dtype)
 
         # Create wrapper for the CLIP part we want to convert
         clip_wrapper = CLIPWrapper(clip_component, is_clip_l=is_clip_l)
@@ -317,10 +309,9 @@ class TRT_CLIP_CONVERSION_BASE:
         
         profile.set_shape("tokens", min_shape, opt_shape, max_shape)
 
-        if dtype == torch.float16:
-            config.set_flag(trt.BuilderFlag.FP16)
-        if dtype == torch.bfloat16:
-            config.set_flag(trt.BuilderFlag.BF16)
+        
+        config.set_flag(trt.BuilderFlag.FP16)
+        
 
         config.add_optimization_profile(profile)
 

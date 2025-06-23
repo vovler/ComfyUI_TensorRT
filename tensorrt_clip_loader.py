@@ -186,6 +186,22 @@ class TrTCLIPL:
             self.context.execute_async_v3(stream_handle=stream.cuda_stream)
 
         print(f"TrTCLIPL - Inference complete, returning tensors: {hidden_out.shape}, {pooled_out.shape}")
+        print(f"TrTCLIPL - Output dtypes: hidden={hidden_out.dtype}, pooled={pooled_out.dtype}")
+        
+        # Check for NaN/Inf values immediately after TensorRT inference
+        if torch.isnan(hidden_out).any():
+            print("WARNING: NaN values detected in TrTCLIPL hidden_out!")
+        if torch.isinf(hidden_out).any():
+            print("WARNING: Infinite values detected in TrTCLIPL hidden_out!")
+        if torch.isnan(pooled_out).any():
+            print("WARNING: NaN values detected in TrTCLIPL pooled_out!")
+        if torch.isinf(pooled_out).any():
+            print("WARNING: Infinite values detected in TrTCLIPL pooled_out!")
+        
+        # Convert to float32 for compatibility and to avoid NaN issues with fp16
+        #hidden_out = hidden_out.to(dtype=torch.float32)
+        #pooled_out = pooled_out.to(dtype=torch.float32)
+        
         return hidden_out, pooled_out
 
     def unload(self):
@@ -357,6 +373,22 @@ class TrTCLIPG:
             self.context.execute_async_v3(stream_handle=stream.cuda_stream)
 
         print(f"TrTCLIPG - Inference complete, returning tensors: {hidden_out.shape}, {pooled_out.shape}")
+        print(f"TrTCLIPG - Output dtypes: hidden={hidden_out.dtype}, pooled={pooled_out.dtype}")
+        
+        # Check for NaN/Inf values immediately after TensorRT inference
+        if torch.isnan(hidden_out).any():
+            print("WARNING: NaN values detected in TrTCLIPG hidden_out!")
+        if torch.isinf(hidden_out).any():
+            print("WARNING: Infinite values detected in TrTCLIPG hidden_out!")
+        if torch.isnan(pooled_out).any():
+            print("WARNING: NaN values detected in TrTCLIPG pooled_out!")
+        if torch.isinf(pooled_out).any():
+            print("WARNING: Infinite values detected in TrTCLIPG pooled_out!")
+        
+        # Convert to float32 for compatibility and to avoid NaN issues with fp16
+        #hidden_out = hidden_out.to(dtype=torch.float32)
+        #pooled_out = pooled_out.to(dtype=torch.float32)
+        
         return hidden_out, pooled_out
 
     def unload(self):
@@ -380,7 +412,8 @@ class TrTCLIPLWrapper:
         tokens = self._convert_token_weights_to_tokens(token_weight_pairs)
         tokens = tokens.to(device=torch.device('cuda'), dtype=torch.long)
         hidden_states, pooled_output = self.engine(tokens)
-        return hidden_states.to(dtype=torch.float32), pooled_output.to(dtype=torch.float32)
+        #return hidden_states.to(dtype=torch.float32), pooled_output.to(dtype=torch.float32)
+        return hidden_states, pooled_output
     
     @property
     def size(self):
@@ -424,7 +457,8 @@ class TrTCLIPGWrapper:
         tokens = self._convert_token_weights_to_tokens(token_weight_pairs)
         tokens = tokens.to(device=torch.device('cuda'), dtype=torch.long)
         hidden_states, pooled_output = self.engine(tokens)
-        return hidden_states.to(dtype=torch.float32), pooled_output.to(dtype=torch.float32)
+        #return hidden_states.to(dtype=torch.float32), pooled_output.to(dtype=torch.float32)
+        return hidden_states, pooled_output
     
     @property
     def size(self):
@@ -512,11 +546,11 @@ class TrTCLIP(torch.nn.Module):
                 combined_out = torch.nn.functional.pad(l_out, (0, 1280))  # Pad CLIP-L to 2048  
                 print(f"Using CLIP-L only, padded to: {combined_out.shape}")
             else:
-                combined_out = torch.zeros((1, 77, 2048), device=self.device, dtype=torch.float32)
+                combined_out = torch.zeros((1, 77, 2048), device=self.device, dtype=torch.float16)
                 print(f"No CLIP outputs, using zeros: {combined_out.shape}")
             
             # ComfyUI returns g_pooled ONLY (not concatenated)
-            pooled = g_pooled if g_pooled is not None else torch.zeros((1, 1280), device=self.device, dtype=torch.float32)
+            pooled = g_pooled if g_pooled is not None else torch.zeros((1, 1280), device=self.device, dtype=torch.float16)
             print(f"Final pooled output: {pooled.shape}")
             
             # Debug: Check for invalid values

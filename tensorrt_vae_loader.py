@@ -278,7 +278,7 @@ class TrTVAE:
         latents = self.encoder(x)
         
         # Convert to float32 for compatibility with ComfyUI latent processing
-        latents = latents.to(dtype=torch.float32)
+        latents = latents.to(dtype=torch.float16)
         
         return latents
 
@@ -294,16 +294,22 @@ class TrTVAE:
         images = self.decoder(x)
         print(f"TensorRT VAE Decoder output - shape: {images.shape}, dtype: {images.dtype}, device: {images.device}")
         
-        # Convert to float32 FIRST to avoid precision issues with bfloat16
-        images = images.to(dtype=torch.float32)
-        
-        # Check for and handle invalid values
+        # Check for invalid values immediately after TensorRT inference
         if torch.isnan(images).any():
-            print("Warning: NaN values detected in VAE decoder output, replacing with zeros")
+            print("WARNING: NaN values detected in TensorRT VAE decoder output!")
+        if torch.isinf(images).any():
+            print("WARNING: Infinite values detected in TensorRT VAE decoder output!")
+        
+        # Convert to float32 FIRST to avoid precision issues with fp16
+        images = images.to(dtype=torch.float16)
+        
+        # Handle any remaining invalid values after conversion
+        if torch.isnan(images).any():
+            print("Warning: NaN values detected after dtype conversion, replacing with zeros")
             images = torch.nan_to_num(images, nan=0.0)
         
         if torch.isinf(images).any():
-            print("Warning: Infinite values detected in VAE decoder output, clamping")
+            print("Warning: Infinite values detected after dtype conversion, clamping")
             images = torch.clamp(images, -10.0, 10.0)
         
         # Convert output from [-1, 1] to [0, 1] range
