@@ -31,36 +31,30 @@ class CLIPWrapper(torch.nn.Module):
     def __init__(self, clip_model, is_clip_l=True):
         super().__init__()
         self.clip = clip_model
-        # is_clip_l determines how we derive the pooled output
         self.is_clip_l = is_clip_l
-        
-        # We need to know which token is the EOS token to extract the pooled output for CLIP-L
-        # For OpenCLIP, this is typically the last non-padded token.
-        # We will assume a simple case here: the last token of the sequence.
-        # A more robust implementation might find the first padding token and take the one before it.
 
     def forward(self, tokens):
-        # The 'tokens' tensor should be of shape (batch, seq_len) and dtype torch.long
-        # The underlying HuggingFace Transformers model expects 'input_ids'
+        # ComfyUI CLIP models (both CLIP-L and CLIP-G) follow the same interface:
+        # - Input: tokens (torch.long tensor)
+        # - Output: tuple (hidden_states, pooled_output)
         
-        # Directly call the model's forward pass. This is what ONNX tracing needs.
-        transformer_outputs = self.clip(input_ids=tokens, output_hidden_states=False)
-
-        # The output 'last_hidden_state' is what we need for cross-attention
-        hidden_states = transformer_outputs.last_hidden_state
-
-        if self.is_clip_l:
-            # For CLIP-L (CLIPTextModel), the pooled output is not returned directly.
-            # We must derive it from the hidden state of the EOS token.
-            # Assuming the EOS token is the last one in the sequence for simplicity.
-            # A more robust way is to find the actual EOS token id from the input 'tokens'.
-            pooled_output = hidden_states[:, -1, :] # Shape: [batch_size, hidden_size]
+        outputs = self.clip(tokens)
+        
+        # Both CLIP-L and CLIP-G return (hidden_states, pooled_output)
+        if isinstance(outputs, tuple) and len(outputs) >= 2:
+            hidden_states = outputs[0]
+            pooled_output = outputs[1]
         else:
-            # For CLIP-G (CLIPTextModelWithProjection), it provides a 'pooler_output'
-            pooled_output = transformer_outputs.pooler_output # Shape: [batch_size, projection_dim]
+            # Fallback if only hidden states are returned
+            hidden_states = outputs
+            if self.is_clip_l:
+                # For CLIP-L: use the last token as pooled output
+                pooled_output = hidden_states[:, -1, :]
+            else:
+                # For CLIP-G: use the first token (CLS token) as pooled output  
+                pooled_output = hidden_states[:, 0, :]
 
-        # Ensure outputs are float32 for consistency, as TensorRT might default to float16
-        # if the model is in half precision.
+        # Ensure outputs are float32 for consistency
         return hidden_states.float(), pooled_output.float()
 
 
