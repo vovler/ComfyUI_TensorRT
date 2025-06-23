@@ -210,8 +210,26 @@ class TRT_CLIP_CONVERSION_BASE:
                 print(f"        intermediate_output: {intermediate_output}")
                 print(f"        attention_mask_model: {attention_mask_model}")
                 
+                # Create dummy token tensor that matches the embedding sequence
+                # The transformer might need this even when we provide embeds
+                batch_size, seq_len = embeds.shape[:2]
+                device = embeds.device
+                
+                # Get the special tokens from the clip model
+                special_tokens = self.clip_model.special_tokens
+                start_token = special_tokens.get("start", 49406)
+                end_token = special_tokens.get("end", 49407)
+                pad_token = special_tokens.get("pad", 49407)
+                
+                # Create the token sequence that matches our embeddings
+                dummy_tokens = torch.zeros((batch_size, seq_len), dtype=torch.long, device=device)
+                for b in range(batch_size):
+                    dummy_tokens[b, 0] = start_token  # start token
+                    dummy_tokens[b, 1] = end_token   # end token  
+                    dummy_tokens[b, 2:] = pad_token  # pad tokens
+                
                 outputs = self.clip_model.transformer(
-                    None, 
+                    dummy_tokens, 
                     attention_mask_model,
                     embeds=embeds, 
                     num_tokens=num_tokens, 
