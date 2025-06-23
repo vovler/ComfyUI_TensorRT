@@ -76,7 +76,7 @@ class TRT_CLIP_CONVERSION_BASE:
         )
 
         comfy.model_management.unload_all_models()
-        comfy.model_management.load_models_gpu([clip], force_patch_weights=True, force_full_load=True)
+        comfy.model_management.load_models_gpu([clip.load_model()], force_patch_weights=True, force_full_load=True)
         
         clip_model = clip.cond_stage_model
         device = comfy.model_management.get_torch_device()
