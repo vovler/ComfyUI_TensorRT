@@ -122,11 +122,11 @@ class TRT_CLIP_CONVERSION_BASE:
             token_sequence = []
             for s in range(seq_len):
                 if s == 0:
-                    token_sequence.append((49406, 1.0))  # start token
+                    token_sequence.append(49406)  # start token (integer)
                 elif s == seq_len - 1:
-                    token_sequence.append((49407, 1.0))  # end token  
+                    token_sequence.append(49407)  # end token (integer)
                 else:
-                    token_sequence.append((49407, 1.0))  # pad tokens
+                    token_sequence.append(49407)  # pad tokens (integer)
             preprocessed_tokens.append(token_sequence)
 
         os.makedirs(os.path.dirname(output_onnx), exist_ok=True)
