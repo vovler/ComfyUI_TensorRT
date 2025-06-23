@@ -269,7 +269,7 @@ class TensorRTCLIPTextModel(torch.nn.Module):
         model_inputs_converted[pooled_output_name] = pooled_out
 
         # Execute inference
-        stream = torch.cuda.default_stream(tokens.device)
+        stream = torch.cuda.default_stream(embeddings.device)
         try:
             for i in range(curr_split_batch):
                 for k in model_inputs_converted:
@@ -293,6 +293,54 @@ class TensorRTCLIPTextModel(torch.nn.Module):
         # Convert to float32 for compatibility
         hidden_out = hidden_out.to(dtype=torch.float32)
         pooled_out = pooled_out.to(dtype=torch.float32)
+        
+        # Check for NaN/Inf values in TensorRT outputs
+        hidden_has_nan = torch.isnan(hidden_out).any()
+        hidden_has_inf = torch.isinf(hidden_out).any()
+        pooled_has_nan = torch.isnan(pooled_out).any()
+        pooled_has_inf = torch.isinf(pooled_out).any()
+        
+        if hidden_has_nan:
+            print(f"🔴 TensorRT - ERROR: NaN values detected in hidden_out!")
+            print(f"   NaN count: {torch.isnan(hidden_out).sum().item()}/{hidden_out.numel()}")
+            nan_positions = torch.nonzero(torch.isnan(hidden_out))
+            if len(nan_positions) <= 10:  # Only print first 10 positions
+                print(f"   NaN positions: {nan_positions.tolist()}")
+                
+        if hidden_has_inf:
+            print(f"🔴 TensorRT - ERROR: Infinite values detected in hidden_out!")
+            print(f"   Inf count: {torch.isinf(hidden_out).sum().item()}/{hidden_out.numel()}")
+            inf_positions = torch.nonzero(torch.isinf(hidden_out))
+            if len(inf_positions) <= 10:  # Only print first 10 positions
+                print(f"   Inf positions: {inf_positions.tolist()}")
+                
+        if pooled_has_nan:
+            print(f"🔴 TensorRT - ERROR: NaN values detected in pooled_out!")
+            print(f"   NaN count: {torch.isnan(pooled_out).sum().item()}/{pooled_out.numel()}")
+            
+        if pooled_has_inf:
+            print(f"🔴 TensorRT - ERROR: Infinite values detected in pooled_out!")
+            print(f"   Inf count: {torch.isinf(pooled_out).sum().item()}/{pooled_out.numel()}")
+        
+        # Print detailed statistics for valid outputs
+        if not hidden_has_nan and not hidden_has_inf:
+            print(f"✅ TensorRT hidden_out stats: min={hidden_out.min().item():.6f}, max={hidden_out.max().item():.6f}, mean={hidden_out.mean().item():.6f}, std={hidden_out.std().item():.6f}")
+        else:
+            print(f"❌ TensorRT hidden_out: CORRUPTED (contains NaN/Inf)")
+            
+        if not pooled_has_nan and not pooled_has_inf:
+            print(f"✅ TensorRT pooled_out stats: min={pooled_out.min().item():.6f}, max={pooled_out.max().item():.6f}, mean={pooled_out.mean().item():.6f}, std={pooled_out.std().item():.6f}")
+        else:
+            print(f"❌ TensorRT pooled_out: CORRUPTED (contains NaN/Inf)")
+        
+        # Also check if the outputs are all zeros (which might indicate inference failure)
+        hidden_all_zero = (hidden_out == 0).all()
+        pooled_all_zero = (pooled_out == 0).all()
+        
+        if hidden_all_zero:
+            print(f"⚠️  TensorRT - WARNING: hidden_out is all zeros - inference may have failed")
+        if pooled_all_zero:
+            print(f"⚠️  TensorRT - WARNING: pooled_out is all zeros - inference may have failed")
         
         # Return in the same format as CLIPTextModel:
         # (last_hidden_state, intermediate_hidden_state, projected_pooled, unprojected_pooled)
