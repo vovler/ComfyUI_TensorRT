@@ -341,6 +341,10 @@ class TrTVAE:
 
 
 class TensorRTVAELoader:
+    RETURN_TYPES = ("VAE",)
+    FUNCTION = "load_vae"
+    CATEGORY = "TensorRT"
+
     @classmethod
     def INPUT_TYPES(cls):
         engine_files = folder_paths.get_filename_list("tensorrt")
@@ -354,10 +358,6 @@ class TensorRTVAELoader:
                 "decoder_name": (vae_decoder_files,),
             },
         }
-    
-    RETURN_TYPES = ("VAE",)
-    FUNCTION = "load_vae"
-    CATEGORY = "TensorRT"
 
     def load_vae(self, encoder_name, decoder_name):
         encoder_path = None

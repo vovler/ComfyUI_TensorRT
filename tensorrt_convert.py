@@ -34,11 +34,6 @@ class TRT_MODEL_CONVERSION_BASE:
             os.path.join(os.path.join(os.path.dirname(os.path.realpath(__file__)), "timing_cache.trt"))
         )
 
-    RETURN_TYPES = ()
-    FUNCTION = "convert"
-    OUTPUT_NODE = True
-    CATEGORY = "TensorRT"
-
     @classmethod
     def INPUT_TYPES(cls):
         raise NotImplementedError
@@ -283,6 +278,11 @@ class DYNAMIC_TRT_MODEL_CONVERSION(TRT_MODEL_CONVERSION_BASE):
     def __init__(self):
         super(DYNAMIC_TRT_MODEL_CONVERSION, self).__init__()
 
+    RETURN_TYPES = ()
+    FUNCTION = "convert"
+    OUTPUT_NODE = True
+    CATEGORY = "TensorRT"
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -427,7 +427,7 @@ class DYNAMIC_TRT_MODEL_CONVERSION(TRT_MODEL_CONVERSION_BASE):
         context_max,
         num_video_frames,
     ):
-        return super()._convert(
+        super()._convert(
             model,
             filename_prefix,
             batch_size_min,
@@ -445,11 +445,17 @@ class DYNAMIC_TRT_MODEL_CONVERSION(TRT_MODEL_CONVERSION_BASE):
             num_video_frames,
             is_static=False,
         )
+        return ()
 
 
 class STATIC_TRT_MODEL_CONVERSION(TRT_MODEL_CONVERSION_BASE):
     def __init__(self):
         super(STATIC_TRT_MODEL_CONVERSION, self).__init__()
+
+    RETURN_TYPES = ()
+    FUNCTION = "convert"
+    OUTPUT_NODE = True
+    CATEGORY = "TensorRT"
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -515,7 +521,7 @@ class STATIC_TRT_MODEL_CONVERSION(TRT_MODEL_CONVERSION_BASE):
         context_opt,
         num_video_frames,
     ):
-        return super()._convert(
+        super()._convert(
             model,
             filename_prefix,
             batch_size_opt,
@@ -533,9 +539,4 @@ class STATIC_TRT_MODEL_CONVERSION(TRT_MODEL_CONVERSION_BASE):
             num_video_frames,
             is_static=True,
         )
-
-
-NODE_CLASS_MAPPINGS = {
-    "DYNAMIC_TRT_MODEL_CONVERSION": DYNAMIC_TRT_MODEL_CONVERSION,
-    "STATIC_TRT_MODEL_CONVERSION": STATIC_TRT_MODEL_CONVERSION,
-}
+        return ()

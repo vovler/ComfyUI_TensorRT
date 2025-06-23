@@ -429,19 +429,16 @@ class TrTCLIP(torch.nn.Module):
         print(f"DEBUG: batch_size = {batch_size}")
         
         # Debug: print the structure of the first few items
-        for i, item in enumerate(token_weight_pairs[:3]):  # Only print first 3 for brevity
+        for i, item in enumerate(token_weight_pairs[:2]):  # Only print first 2 for brevity
             print(f"DEBUG: Item {i}: type={type(item)}, len={len(item) if hasattr(item, '__len__') else 'N/A'}")
             if hasattr(item, '__len__') and len(item) > 0:
-                print(f"DEBUG: Item {i} first element: type={type(item[0])}, value={item[0] if not hasattr(item[0], '__len__') or len(str(item[0])) < 100 else str(item[0])[:100]}")
+                first_few = item[:3] if len(item) > 3 else item
+                print(f"DEBUG: Item {i} first few elements: {first_few}")
         
         # Handle ComfyUI token weight pairs format
         # Each item in token_weight_pairs is a list of (token_id, weight) tuples
         max_length = 77  # Force CLIP standard length
         
-        for i, item in enumerate(token_weight_pairs):
-            if isinstance(item, (list, tuple)):
-                print(f"DEBUG: Item {i} has {len(item)} token-weight pairs")
-            
         print(f"DEBUG: Using fixed max_length = {max_length}")
         
         tokens_tensor = torch.zeros((batch_size, max_length), dtype=torch.long, device=self.device)
@@ -451,13 +448,16 @@ class TrTCLIP(torch.nn.Module):
                 if isinstance(item, (list, tuple)):
                     # Each item is a list of (token_id, weight) tuples
                     tokens_list = []
-                    for token_weight in item:
+                    for j, token_weight in enumerate(item):
                         if isinstance(token_weight, (list, tuple)) and len(token_weight) >= 1:
                             # Extract just the token ID (first element)
                             token_id = token_weight[0]
                             tokens_list.append(int(token_id))
+                        elif isinstance(token_weight, (int, float)):
+                            # Sometimes tokens might be passed as raw integers
+                            tokens_list.append(int(token_weight))
                         else:
-                            print(f"DEBUG: Unexpected token_weight format: {token_weight}")
+                            print(f"DEBUG: Unexpected token_weight format at item {i}, pos {j}: {token_weight}")
                     
                     # Pad or truncate to max_length
                     if len(tokens_list) < max_length:
@@ -468,13 +468,16 @@ class TrTCLIP(torch.nn.Module):
                         tokens_list = tokens_list[:max_length]
                     
                     tokens_tensor[i, :] = torch.tensor(tokens_list, dtype=torch.long, device=self.device)
-                    print(f"DEBUG: Processed item {i}: extracted {len(tokens_list)} tokens, padded to {max_length}")
+                    print(f"DEBUG: Processed item {i}: extracted {len(item)} token pairs -> {len(tokens_list)} tokens, final length {max_length}")
                 else:
-                    print(f"DEBUG: Skipping item {i}: item not a list/tuple")
+                    print(f"DEBUG: Skipping item {i}: item not a list/tuple, type={type(item)}")
             except Exception as e:
                 print(f"DEBUG: Error converting item {i}: {e}")
+                import traceback
+                traceback.print_exc()
             
         print(f"DEBUG: Final tokens_tensor shape: {tokens_tensor.shape}")
+        print(f"DEBUG: Sample tokens from first sequence: {tokens_tensor[0, :10].tolist()}")
         return tokens_tensor
 
     def load_sd(self, sd):
@@ -572,6 +575,10 @@ class TrTCLIP(torch.nn.Module):
 
 
 class TensorRTCLIPLoader:
+    RETURN_TYPES = ("CLIP",)
+    FUNCTION = "load_clip"
+    CATEGORY = "TensorRT"
+
     @classmethod
     def INPUT_TYPES(cls):
         engine_files = folder_paths.get_filename_list("tensorrt")
@@ -585,10 +592,6 @@ class TensorRTCLIPLoader:
                 "clip_g_name": (clip_g_files,),
             },
         }
-    
-    RETURN_TYPES = ("CLIP",)
-    FUNCTION = "load_clip"
-    CATEGORY = "TensorRT"
 
     def load_clip(self, clip_l_name, clip_g_name):
         clip_l_path = None
@@ -629,12 +632,3 @@ class TensorRTCLIPLoader:
         new_clip.tokenizer_options = {}
         
         return (new_clip,)
-
-
-NODE_CLASS_MAPPINGS = {
-    "TensorRTCLIPLoader": TensorRTCLIPLoader,
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "TensorRTCLIPLoader": "TensorRT CLIP Loader",
-} 

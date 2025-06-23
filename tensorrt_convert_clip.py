@@ -34,26 +34,53 @@ class CLIPWrapper(torch.nn.Module):
         self.is_clip_l = is_clip_l
 
     def forward(self, tokens):
-        # ComfyUI CLIP expects tokens to be a list of lists of integers
-        # Convert from tensor format to the expected list format
-        batch_size, seq_len = tokens.shape
+        # For TensorRT conversion, we need to work directly with the transformer
+        # rather than going through ComfyUI's token processing pipeline
         
-        # Convert tensor to list format expected by ComfyUI CLIP
-        tokens_list = []
-        for b in range(batch_size):
-            # Convert each batch item to a list of integers
-            token_list = tokens[b].cpu().tolist()
-            tokens_list.append(token_list)
+        # The tokens tensor is already in the right format: (batch, sequence)
+        # We just need to call the transformer directly
+        device = tokens.device
         
-        # Call the CLIP model directly with the token list
+        # Process tokens through the CLIP transformer
+        # This bypasses ComfyUI's process_tokens and goes straight to the model
+        embeds, attention_mask, num_tokens = self.clip.process_tokens([tokens[i].tolist() for i in range(tokens.shape[0])], device)
+        
+        # Call transformer directly
+        if self.clip.layer == "all":
+            intermediate_output = "all"
+        else:
+            intermediate_output = self.clip.layer_idx
+
+        attention_mask_model = None
+        if self.clip.enable_attention_masks:
+            attention_mask_model = attention_mask
+
+        outputs = self.clip.transformer(None, attention_mask_model, embeds=embeds, num_tokens=num_tokens, 
+                                      intermediate_output=intermediate_output, 
+                                      final_layer_norm_intermediate=self.clip.layer_norm_hidden_state, 
+                                      dtype=torch.float32)
+
+        if self.clip.layer == "last":
+            z = outputs[0].float()
+        else:
+            z = outputs[1].float()
+
+        if self.clip.zero_out_masked:
+            z *= attention_mask.unsqueeze(-1).float()
+
+        pooled_output = None
+        if len(outputs) >= 3:
+            if not self.clip.return_projected_pooled and len(outputs) >= 4 and outputs[3] is not None:
+                pooled_output = outputs[3].float()
+            elif outputs[2] is not None:
+                pooled_output = outputs[2].float()
+        
         if self.is_clip_l:
-            # For CLIP-L, we want the last hidden state output
-            out, pooled = self.clip(tokens_list)
-            return out  # Return hidden states only
+            # For CLIP-L, we want the last hidden state output only
+            return z  # Return hidden states only
         else:
             # For CLIP-G, we want both hidden states and pooled output
-            out, pooled = self.clip(tokens_list)
-            return out, pooled  # Return hidden states and pooled output
+            return z, pooled_output  # Return hidden states and pooled output
 
 
 class TRT_CLIP_CONVERSION_BASE:
@@ -63,11 +90,6 @@ class TRT_CLIP_CONVERSION_BASE:
         self.timing_cache_path = os.path.normpath(
             os.path.join(os.path.join(os.path.dirname(os.path.realpath(__file__)), "timing_cache_clip.trt"))
         )
-
-    RETURN_TYPES = ()
-    FUNCTION = "convert"
-    OUTPUT_NODE = True
-    CATEGORY = "TensorRT"
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -303,6 +325,11 @@ class DYNAMIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):
     def __init__(self):
         super(DYNAMIC_TRT_CLIP_L_CONVERSION, self).__init__()
 
+    RETURN_TYPES = ()
+    FUNCTION = "convert"
+    OUTPUT_NODE = True
+    CATEGORY = "TensorRT"
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -377,7 +404,7 @@ class DYNAMIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):
         sequence_length_opt,
         sequence_length_max,
     ):
-        return super()._convert_clip(
+        super()._convert_clip(
             clip,
             filename_prefix,
             batch_size_min,
@@ -389,11 +416,17 @@ class DYNAMIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):
             is_clip_l=True,
             is_static=False,
         )
+        return ()
 
 
 class STATIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):
     def __init__(self):
         super(STATIC_TRT_CLIP_L_CONVERSION, self).__init__()
+
+    RETURN_TYPES = ()
+    FUNCTION = "convert"
+    OUTPUT_NODE = True
+    CATEGORY = "TensorRT"
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -429,7 +462,7 @@ class STATIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):
         batch_size_opt,
         sequence_length_opt,
     ):
-        return super()._convert_clip(
+        super()._convert_clip(
             clip,
             filename_prefix,
             batch_size_opt,
@@ -441,11 +474,17 @@ class STATIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):
             is_clip_l=True,
             is_static=True,
         )
+        return ()
 
 
 class DYNAMIC_TRT_CLIP_G_CONVERSION(TRT_CLIP_CONVERSION_BASE):
     def __init__(self):
         super(DYNAMIC_TRT_CLIP_G_CONVERSION, self).__init__()
+
+    RETURN_TYPES = ()
+    FUNCTION = "convert"
+    OUTPUT_NODE = True
+    CATEGORY = "TensorRT"
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -521,7 +560,7 @@ class DYNAMIC_TRT_CLIP_G_CONVERSION(TRT_CLIP_CONVERSION_BASE):
         sequence_length_opt,
         sequence_length_max,
     ):
-        return super()._convert_clip(
+        super()._convert_clip(
             clip,
             filename_prefix,
             batch_size_min,
@@ -533,11 +572,17 @@ class DYNAMIC_TRT_CLIP_G_CONVERSION(TRT_CLIP_CONVERSION_BASE):
             is_clip_l=False,
             is_static=False,
         )
+        return ()
 
 
 class STATIC_TRT_CLIP_G_CONVERSION(TRT_CLIP_CONVERSION_BASE):
     def __init__(self):
         super(STATIC_TRT_CLIP_G_CONVERSION, self).__init__()
+
+    RETURN_TYPES = ()
+    FUNCTION = "convert"
+    OUTPUT_NODE = True
+    CATEGORY = "TensorRT"
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -573,7 +618,7 @@ class STATIC_TRT_CLIP_G_CONVERSION(TRT_CLIP_CONVERSION_BASE):
         batch_size_opt,
         sequence_length_opt,
     ):
-        return super()._convert_clip(
+        super()._convert_clip(
             clip,
             filename_prefix,
             batch_size_opt,
@@ -585,18 +630,4 @@ class STATIC_TRT_CLIP_G_CONVERSION(TRT_CLIP_CONVERSION_BASE):
             is_clip_l=False,
             is_static=True,
         )
-
-
-NODE_CLASS_MAPPINGS = {
-    "DYNAMIC_TRT_CLIP_L_CONVERSION": DYNAMIC_TRT_CLIP_L_CONVERSION,
-    "STATIC_TRT_CLIP_L_CONVERSION": STATIC_TRT_CLIP_L_CONVERSION,
-    "DYNAMIC_TRT_CLIP_G_CONVERSION": DYNAMIC_TRT_CLIP_G_CONVERSION,
-    "STATIC_TRT_CLIP_G_CONVERSION": STATIC_TRT_CLIP_G_CONVERSION,
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "DYNAMIC_TRT_CLIP_L_CONVERSION": "DYNAMIC TRT CLIP-L CONVERSION",
-    "STATIC_TRT_CLIP_L_CONVERSION": "STATIC TRT CLIP-L CONVERSION", 
-    "DYNAMIC_TRT_CLIP_G_CONVERSION": "DYNAMIC TRT CLIP-G CONVERSION",
-    "STATIC_TRT_CLIP_G_CONVERSION": "STATIC TRT CLIP-G CONVERSION",
-} 
+        return ()

@@ -48,11 +48,6 @@ class TRT_VAE_CONVERSION_BASE:
             os.path.join(os.path.join(os.path.dirname(os.path.realpath(__file__)), "timing_cache_vae.trt"))
         )
 
-    RETURN_TYPES = ()
-    FUNCTION = "convert"
-    OUTPUT_NODE = True
-    CATEGORY = "TensorRT"
-
     @classmethod
     def INPUT_TYPES(cls):
         raise NotImplementedError
@@ -266,6 +261,11 @@ class DYNAMIC_TRT_VAE_DECODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
     def __init__(self):
         super(DYNAMIC_TRT_VAE_DECODER_CONVERSION, self).__init__()
 
+    RETURN_TYPES = ()
+    FUNCTION = "convert"
+    OUTPUT_NODE = True
+    CATEGORY = "TensorRT"
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -370,7 +370,7 @@ class DYNAMIC_TRT_VAE_DECODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
         width_opt,
         width_max,
     ):
-        return super()._convert_vae(
+        super()._convert_vae(
             vae,
             filename_prefix,
             batch_size_min,
@@ -385,11 +385,17 @@ class DYNAMIC_TRT_VAE_DECODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
             is_encoder=False,
             is_static=False,
         )
+        return ()
 
 
 class STATIC_TRT_VAE_DECODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
     def __init__(self):
         super(STATIC_TRT_VAE_DECODER_CONVERSION, self).__init__()
+
+    RETURN_TYPES = ()
+    FUNCTION = "convert"
+    OUTPUT_NODE = True
+    CATEGORY = "TensorRT"
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -435,7 +441,7 @@ class STATIC_TRT_VAE_DECODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
         height_opt,
         width_opt,
     ):
-        return super()._convert_vae(
+        super()._convert_vae(
             vae,
             filename_prefix,
             batch_size_opt,
@@ -450,11 +456,17 @@ class STATIC_TRT_VAE_DECODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
             is_encoder=False,
             is_static=True,
         )
+        return ()
 
 
 class DYNAMIC_TRT_VAE_ENCODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
     def __init__(self):
         super(DYNAMIC_TRT_VAE_ENCODER_CONVERSION, self).__init__()
+
+    RETURN_TYPES = ()
+    FUNCTION = "convert"
+    OUTPUT_NODE = True
+    CATEGORY = "TensorRT"
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -560,7 +572,7 @@ class DYNAMIC_TRT_VAE_ENCODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
         width_opt,
         width_max,
     ):
-        return super()._convert_vae(
+        super()._convert_vae(
             vae,
             filename_prefix,
             batch_size_min,
@@ -575,11 +587,17 @@ class DYNAMIC_TRT_VAE_ENCODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
             is_encoder=True,
             is_static=False,
         )
+        return ()
 
 
 class STATIC_TRT_VAE_ENCODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
     def __init__(self):
         super(STATIC_TRT_VAE_ENCODER_CONVERSION, self).__init__()
+
+    RETURN_TYPES = ()
+    FUNCTION = "convert"
+    OUTPUT_NODE = True
+    CATEGORY = "TensorRT"
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -625,7 +643,7 @@ class STATIC_TRT_VAE_ENCODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
         height_opt,
         width_opt,
     ):
-        return super()._convert_vae(
+        super()._convert_vae(
             vae,
             filename_prefix,
             batch_size_opt,
@@ -640,18 +658,4 @@ class STATIC_TRT_VAE_ENCODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
             is_encoder=True,
             is_static=True,
         )
-
-
-NODE_CLASS_MAPPINGS = {
-    "DYNAMIC_TRT_VAE_DECODER_CONVERSION": DYNAMIC_TRT_VAE_DECODER_CONVERSION,
-    "STATIC_TRT_VAE_DECODER_CONVERSION": STATIC_TRT_VAE_DECODER_CONVERSION,
-    "DYNAMIC_TRT_VAE_ENCODER_CONVERSION": DYNAMIC_TRT_VAE_ENCODER_CONVERSION,
-    "STATIC_TRT_VAE_ENCODER_CONVERSION": STATIC_TRT_VAE_ENCODER_CONVERSION,
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "DYNAMIC_TRT_VAE_DECODER_CONVERSION": "DYNAMIC TRT VAE DECODER CONVERSION",
-    "STATIC_TRT_VAE_DECODER_CONVERSION": "STATIC TRT VAE DECODER CONVERSION", 
-    "DYNAMIC_TRT_VAE_ENCODER_CONVERSION": "DYNAMIC TRT VAE ENCODER CONVERSION",
-    "STATIC_TRT_VAE_ENCODER_CONVERSION": "STATIC TRT VAE ENCODER CONVERSION",
-} 
+        return ()

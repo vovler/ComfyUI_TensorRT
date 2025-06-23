@@ -43,14 +43,15 @@ def trt_datatype_to_torch(datatype):
 
 
 class TensorRTLoader:
+    RETURN_TYPES = ("MODEL",)
+    FUNCTION = "load_unet"
+    CATEGORY = "TensorRT"
+
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {"unet_name": (folder_paths.get_filename_list("tensorrt"), ),
                              "model_type": (["sdxl_base"], ),
                              }}
-    RETURN_TYPES = ("MODEL",)
-    FUNCTION = "load_unet"
-    CATEGORY = "TensorRT"
 
     def load_unet(self, unet_name, model_type):
 
@@ -78,7 +79,3 @@ class TensorRTLoader:
         manageable_model = TrTModelManageable(model, unet, load_device, offload_device)
 
         return (manageable_model,)
-
-NODE_CLASS_MAPPINGS = {
-    "TensorRTLoader": TensorRTLoader,
-}
