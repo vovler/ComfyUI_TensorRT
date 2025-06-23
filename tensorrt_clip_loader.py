@@ -40,7 +40,7 @@ class TensorRTCompatibleEmbedding(torch.nn.Module):
         # For TensorRT, we don't actually use this embedding for inference
         # This is just for interface compatibility
         batch_size, seq_len = input_tokens.shape
-       
+        return torch.zeros(batch_size, seq_len, self.embed_dim, device=input_tokens.device, dtype=out_dtype)
 
 class TensorRTCLIPTextModel(torch.nn.Module):
     """
