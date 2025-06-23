@@ -26,87 +26,7 @@ else:
     )
 
 
-class CLIPWrapper(torch.nn.Module):
-    """Wrapper that calls the underlying transformer directly, bypassing ComfyUI's complex preprocessing"""
-    def __init__(self, clip_model, is_clip_l=True):
-        super().__init__()
-        
-        # Extract the underlying transformer from ComfyUI's wrapper
-        if hasattr(clip_model, 'transformer'):
-            # For SDClipModel, extract the CLIPTextModel
-            self.transformer = clip_model.transformer
-            print(f"CLIPWrapper: Found transformer in clip_model: {type(self.transformer)}")
-        else:
-            # Fallback - try to use the model directly
-            self.transformer = clip_model
-            print(f"CLIPWrapper: Using clip_model directly as transformer: {type(self.transformer)}")
-            
-        self.is_clip_l = is_clip_l
-        
-        # Get model-specific info for debugging
-        if hasattr(self.transformer, 'text_model'):
-            self.hidden_size = self.transformer.text_model.embeddings.token_embedding.weight.shape[1]
-            print(f"CLIPWrapper: CLIP {'L' if is_clip_l else 'G'} - Hidden size: {self.hidden_size}")
-        else:
-            print(f"CLIPWrapper: Warning - could not determine hidden size")
 
-    def forward(self, tokens):
-        """
-        Call the transformer directly with minimal arguments
-        This bypasses all of ComfyUI's complex preprocessing
-        """
-        
-        # Call CLIPTextModel.forward() which calls CLIPTextModel_.forward()
-        # CLIPTextModel_.forward() signature:
-        # def forward(self, input_tokens=None, attention_mask=None, embeds=None, 
-        #            num_tokens=None, intermediate_output=None, 
-        #            final_layer_norm_intermediate=True, dtype=torch.float32)
-        
-        print(f"CLIPWrapper.forward: Input tokens shape: {tokens.shape}, dtype: {tokens.dtype}")
-        
-        outputs = self.transformer(
-            input_tokens=tokens,  # Pass tokens directly
-            attention_mask=None,  # No attention masking for ONNX simplicity
-            embeds=None,          # Use token embeddings, not pre-computed embeds
-            num_tokens=None,      # Let it figure out EOS automatically
-            intermediate_output=None,  # No intermediate outputs
-            final_layer_norm_intermediate=True,
-            dtype=torch.float16
-        )
-        
-        print(f"CLIPWrapper.forward: Transformer output type: {type(outputs)}, length: {len(outputs) if isinstance(outputs, tuple) else 'not tuple'}")
-        
-        # CLIPTextModel.forward() processes CLIPTextModel_.forward() output and returns:
-        # (x[0], x[1], out, x[2]) where:
-        # - x[0] = hidden_states (last layer)
-        # - x[1] = intermediate (can be None)
-        # - out = text_projection(x[2]) = projected pooled output
-        # - x[2] = pooled_output (unprojected)
-        
-        if isinstance(outputs, tuple) and len(outputs) >= 3:
-            hidden_states = outputs[0]      # Last hidden states
-            # outputs[1] is intermediate (can be None)
-            # outputs[2] is pooled_output after text_projection
-            # outputs[3] is pooled_output before text_projection (if available)
-            
-            if len(outputs) >= 4 and outputs[3] is not None:
-                pooled_output = outputs[3]  # Use unprojected pooled output for consistency
-                print(f"CLIPWrapper.forward: Using unprojected pooled output")
-            else:
-                pooled_output = outputs[2]  # Use projected pooled output
-                print(f"CLIPWrapper.forward: Using projected pooled output")
-        else:
-            # Fallback
-            if isinstance(outputs, tuple) and len(outputs) > 0:
-                hidden_states = outputs[0]
-            else:
-                hidden_states = outputs
-            pooled_output = hidden_states[:, -1, :]  # Use last token
-            print(f"CLIPWrapper.forward: Using fallback pooled output (last token)")
-        
-        print(f"CLIPWrapper.forward: Output shapes - hidden: {hidden_states.shape}, pooled: {pooled_output.shape}")
-        
-        return hidden_states.float(), pooled_output.float()
 
 
 class TRT_CLIP_CONVERSION_BASE:
@@ -116,10 +36,6 @@ class TRT_CLIP_CONVERSION_BASE:
         self.timing_cache_path = os.path.normpath(
             os.path.join(os.path.join(os.path.dirname(os.path.realpath(__file__)), "timing_cache_clip.trt"))
         )
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        raise NotImplementedError
 
     # Sets up the builder to use the timing cache file, and creates it if it does not already exist
     def _setup_timing_cache(self, config: trt.IBuilderConfig):
@@ -215,14 +131,8 @@ class TRT_CLIP_CONVERSION_BASE:
             if buffer.device != device or buffer.dtype != dtype:
                 buffer.data = buffer.data.to(device=device, dtype=dtype)
 
-        # Create wrapper for the CLIP part we want to convert
-        clip_wrapper = CLIPWrapper(clip_component, is_clip_l=is_clip_l)
-        
-        # Set model to evaluation mode to avoid any training-specific behavior
-        clip_wrapper.eval()
-        
-        # Ensure wrapper is on the correct device (CUDA)
-        clip_wrapper = clip_wrapper.cuda()
+        # Use clip_component directly - no wrapper needed
+        model_to_export = clip_component
 
         # Input shapes for CLIP (token sequences)
         inputs_shapes_min = (batch_size_min, sequence_length_min)
@@ -238,26 +148,14 @@ class TRT_CLIP_CONVERSION_BASE:
             "pooled_output": {0: "batch"},
         }
 
-        # Create input tensor for ONNX export (integer tokens)
-        # Use realistic token values instead of all zeros to avoid issues
-        # Token 0 is typically padding, 1 is start token, 2 is end token
-        input_tensor = torch.ones(
-            inputs_shapes_opt,
-            device=device,
-            dtype=torch.long,  # CLIP tokens are integers
-        )
-        # Set start token (typically 1) at the beginning of each sequence
-        input_tensor[:, 0] = 1
-        # Set some variety in the middle tokens to make it more realistic
-        for i in range(1, min(inputs_shapes_opt[1], 10)):
-            input_tensor[:, i] = i + 100  # Use tokens in a safe range
+        input_tensor = torch.zeros(inputs_shapes_opt, device=device, dtype=torch.long)
 
         os.makedirs(os.path.dirname(output_onnx), exist_ok=True)
         
         # Export to ONNX with no_grad context to avoid gradient computation
         with torch.no_grad():
             torch.onnx.export(
-                clip_wrapper,
+                model_to_export,
                 (input_tensor,),
                 output_onnx,
                 verbose=False,
@@ -369,106 +267,7 @@ class TRT_CLIP_CONVERSION_BASE:
         return {}
 
 
-class DYNAMIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):
-    def __init__(self):
-        super(DYNAMIC_TRT_CLIP_L_CONVERSION, self).__init__()
 
-    RETURN_TYPES = ()
-    FUNCTION = "convert"
-    OUTPUT_NODE = True
-    CATEGORY = "TensorRT"
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "clip": ("CLIP",),
-                "filename_prefix": ("STRING", {"default": "tensorrt/ComfyUI_CLIP_L_DYN"}),
-                "batch_size_min": (
-                    "INT",
-                    {
-                        "default": 1,
-                        "min": 1,
-                        "max": 100,
-                        "step": 1,
-                    },
-                ),
-                "batch_size_opt": (
-                    "INT",
-                    {
-                        "default": 1,
-                        "min": 1,
-                        "max": 100,
-                        "step": 1,
-                    },
-                ),
-                "batch_size_max": (
-                    "INT",
-                    {
-                        "default": 4,
-                        "min": 1,
-                        "max": 100,
-                        "step": 1,
-                    },
-                ),
-                "sequence_length_min": (
-                    "INT",
-                    {
-                        "default": 77,
-                        "min": 1,
-                        "max": 512,
-                        "step": 1,
-                    },
-                ),
-                "sequence_length_opt": (
-                    "INT",
-                    {
-                        "default": 77,
-                        "min": 1,
-                        "max": 512,
-                        "step": 1,
-                    },
-                ),
-                "sequence_length_max": (
-                    "INT",
-                    {
-                        "default": 77,
-                        "min": 1,
-                        "max": 512,
-                        "step": 1,
-                    },
-                ),
-            },
-        }
-
-    def convert(
-        self,
-        clip,
-        filename_prefix,
-        batch_size_min,
-        batch_size_opt,
-        batch_size_max,
-        sequence_length_min,
-        sequence_length_opt,
-        sequence_length_max,
-    ):
-        try:
-            super()._convert_clip(
-                clip,
-                filename_prefix,
-                batch_size_min,
-                batch_size_opt,
-                batch_size_max,
-                sequence_length_min,
-                sequence_length_opt,
-                sequence_length_max,
-                is_clip_l=True,
-                is_static=False,
-            )
-        except Exception as e:
-            print(f"DYNAMIC_TRT_CLIP_L_CONVERSION - Error converting: {e}")
-            return ()
-        return ()
 
 
 class STATIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):
@@ -533,106 +332,7 @@ class STATIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):
         return ()
 
 
-class DYNAMIC_TRT_CLIP_G_CONVERSION(TRT_CLIP_CONVERSION_BASE):
-    def __init__(self):
-        super(DYNAMIC_TRT_CLIP_G_CONVERSION, self).__init__()
 
-    RETURN_TYPES = ()
-    FUNCTION = "convert"
-    OUTPUT_NODE = True
-    CATEGORY = "TensorRT"
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "clip": ("CLIP",),
-                "filename_prefix": ("STRING", {"default": "tensorrt/ComfyUI_CLIP_G_DYN"}),
-                "batch_size_min": (
-                    "INT",
-                    {
-                        "default": 1,
-                        "min": 1,
-                        "max": 100,
-                        "step": 1,
-                    },
-                ),
-                "batch_size_opt": (
-                    "INT",
-                    {
-                        "default": 1,
-                        "min": 1,
-                        "max": 100,
-                        "step": 1,
-                    },
-                ),
-                "batch_size_max": (
-                    "INT",
-                    {
-                        "default": 4,
-                        "min": 1,
-                        "max": 100,
-                        "step": 1,
-                    },
-                ),
-                "sequence_length_min": (
-                    "INT",
-                    {
-                        "default": 77,
-                        "min": 1,
-                        "max": 512,
-                        "step": 1,
-                    },
-                ),
-                "sequence_length_opt": (
-                    "INT",
-                    {
-                        "default": 77,
-                        "min": 1,
-                        "max": 512,
-                        "step": 1,
-                    },
-                ),
-                "sequence_length_max": (
-                    "INT",
-                    {
-                        "default": 77,
-                        "min": 1,
-                        "max": 512,
-                        "step": 1,
-                    },
-                ),
-            },
-        }
-
-    def convert(
-        self,
-        clip,
-        filename_prefix,
-        batch_size_min,
-        batch_size_opt,
-        batch_size_max,
-        sequence_length_min,
-        sequence_length_opt,
-        sequence_length_max,
-    ):
-        try:    
-            super()._convert_clip(
-                clip,
-                filename_prefix,
-                batch_size_min,
-                batch_size_opt,
-                batch_size_max,
-                sequence_length_min,
-                sequence_length_opt,
-                sequence_length_max,
-                is_clip_l=False,
-                is_static=False,
-            )
-        except Exception as e:
-            print(f"DYNAMIC_TRT_CLIP_G_CONVERSION - Error converting: {e}")
-            return ()
-        return ()
 
 
 class STATIC_TRT_CLIP_G_CONVERSION(TRT_CLIP_CONVERSION_BASE):
