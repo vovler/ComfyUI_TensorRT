@@ -27,34 +27,85 @@ else:
 
 
 class CLIPWrapper(torch.nn.Module):
-    """Wrapper for CLIP encoder to make it compatible with ONNX export"""
+    """Wrapper that calls the underlying transformer directly, bypassing ComfyUI's complex preprocessing"""
     def __init__(self, clip_model, is_clip_l=True):
         super().__init__()
-        self.clip = clip_model
+        
+        # Extract the underlying transformer from ComfyUI's wrapper
+        if hasattr(clip_model, 'transformer'):
+            # For SDClipModel, extract the CLIPTextModel
+            self.transformer = clip_model.transformer
+            print(f"CLIPWrapper: Found transformer in clip_model: {type(self.transformer)}")
+        else:
+            # Fallback - try to use the model directly
+            self.transformer = clip_model
+            print(f"CLIPWrapper: Using clip_model directly as transformer: {type(self.transformer)}")
+            
         self.is_clip_l = is_clip_l
+        
+        # Get model-specific info for debugging
+        if hasattr(self.transformer, 'text_model'):
+            self.hidden_size = self.transformer.text_model.embeddings.token_embedding.weight.shape[1]
+            print(f"CLIPWrapper: CLIP {'L' if is_clip_l else 'G'} - Hidden size: {self.hidden_size}")
+        else:
+            print(f"CLIPWrapper: Warning - could not determine hidden size")
 
     def forward(self, tokens):
-        # ComfyUI CLIP models (both CLIP-L and CLIP-G) follow the same interface:
-        # - Input: tokens (torch.long tensor)
-        # - Output: tuple (hidden_states, pooled_output)
+        """
+        Call the transformer directly with minimal arguments
+        This bypasses all of ComfyUI's complex preprocessing
+        """
         
-        outputs = self.clip(tokens)
+        # Call CLIPTextModel.forward() which calls CLIPTextModel_.forward()
+        # CLIPTextModel_.forward() signature:
+        # def forward(self, input_tokens=None, attention_mask=None, embeds=None, 
+        #            num_tokens=None, intermediate_output=None, 
+        #            final_layer_norm_intermediate=True, dtype=torch.float32)
         
-        # Both CLIP-L and CLIP-G return (hidden_states, pooled_output)
-        if isinstance(outputs, tuple) and len(outputs) >= 2:
-            hidden_states = outputs[0]
-            pooled_output = outputs[1]
-        else:
-            # Fallback if only hidden states are returned
-            hidden_states = outputs
-            if self.is_clip_l:
-                # For CLIP-L: use the last token as pooled output
-                pooled_output = hidden_states[:, -1, :]
+        print(f"CLIPWrapper.forward: Input tokens shape: {tokens.shape}, dtype: {tokens.dtype}")
+        
+        outputs = self.transformer(
+            input_tokens=tokens,  # Pass tokens directly
+            attention_mask=None,  # No attention masking for ONNX simplicity
+            embeds=None,          # Use token embeddings, not pre-computed embeds
+            num_tokens=None,      # Let it figure out EOS automatically
+            intermediate_output=None,  # No intermediate outputs
+            final_layer_norm_intermediate=True,
+            dtype=torch.float32
+        )
+        
+        print(f"CLIPWrapper.forward: Transformer output type: {type(outputs)}, length: {len(outputs) if isinstance(outputs, tuple) else 'not tuple'}")
+        
+        # CLIPTextModel.forward() processes CLIPTextModel_.forward() output and returns:
+        # (x[0], x[1], out, x[2]) where:
+        # - x[0] = hidden_states (last layer)
+        # - x[1] = intermediate (can be None)
+        # - out = text_projection(x[2]) = projected pooled output
+        # - x[2] = pooled_output (unprojected)
+        
+        if isinstance(outputs, tuple) and len(outputs) >= 3:
+            hidden_states = outputs[0]      # Last hidden states
+            # outputs[1] is intermediate (can be None)
+            # outputs[2] is pooled_output after text_projection
+            # outputs[3] is pooled_output before text_projection (if available)
+            
+            if len(outputs) >= 4 and outputs[3] is not None:
+                pooled_output = outputs[3]  # Use unprojected pooled output for consistency
+                print(f"CLIPWrapper.forward: Using unprojected pooled output")
             else:
-                # For CLIP-G: use the first token (CLS token) as pooled output  
-                pooled_output = hidden_states[:, 0, :]
-
-        # Ensure outputs are float32 for consistency
+                pooled_output = outputs[2]  # Use projected pooled output
+                print(f"CLIPWrapper.forward: Using projected pooled output")
+        else:
+            # Fallback
+            if isinstance(outputs, tuple) and len(outputs) > 0:
+                hidden_states = outputs[0]
+            else:
+                hidden_states = outputs
+            pooled_output = hidden_states[:, -1, :]  # Use last token
+            print(f"CLIPWrapper.forward: Using fallback pooled output (last token)")
+        
+        print(f"CLIPWrapper.forward: Output shapes - hidden: {hidden_states.shape}, pooled: {pooled_output.shape}")
+        
         return hidden_states.float(), pooled_output.float()
 
 
