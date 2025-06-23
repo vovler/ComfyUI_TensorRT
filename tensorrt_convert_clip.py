@@ -138,17 +138,47 @@ class TRT_CLIP_CONVERSION_BASE:
         clip_model = clip.cond_stage_model
         device = comfy.model_management.get_torch_device()
         
-        # Force load the CLIP model to ensure it's on the correct device
-        comfy.model_management.load_models_gpu([clip], force_patch_weights=True, force_full_load=True)
+        # Load the CLIP model using the patcher instead of direct model management
+        if hasattr(clip, 'patcher') and clip.patcher is not None:
+            clip.patcher.patch_model(device_to=device, force_patch_weights=True)
+        else:
+            # Fallback: manually move the CLIP model to device
+            clip_model = clip_model.to(device=device)
         
+        # Debug: Print CLIP model structure
+        print(f"CLIP model type: {type(clip_model)}")
+        print(f"CLIP model attributes: {dir(clip_model)}")
+        if hasattr(clip_model, 'clip_l'):
+            print(f"Has clip_l: {type(clip_model.clip_l)}")
+        if hasattr(clip_model, 'clip_g'):
+            print(f"Has clip_g: {type(clip_model.clip_g)}")
+            
         # Get the CLIP model's native dtype and use it for consistency
         # Check the dtype of the first parameter to determine model dtype
         if is_clip_l:
-            clip_component = clip_model.clip_l if hasattr(clip_model, 'clip_l') else clip_model
+            if hasattr(clip_model, 'clip_l'):
+                clip_component = clip_model.clip_l
+                print(f"Using CLIP-L component: {type(clip_component)}")
+            else:
+                # For single CLIP models, use the model directly
+                clip_component = clip_model
+                print(f"Using single CLIP model as CLIP-L: {type(clip_component)}")
         else:
-            clip_component = clip_model.clip_g if hasattr(clip_model, 'clip_g') else clip_model
-            
-        model_dtype = next(clip_component.parameters()).dtype
+            if hasattr(clip_model, 'clip_g'):
+                clip_component = clip_model.clip_g
+                print(f"Using CLIP-G component: {type(clip_component)}")
+            else:
+                # For single CLIP models, use the model directly
+                clip_component = clip_model
+                print(f"Using single CLIP model as CLIP-G: {type(clip_component)}")
+                
+        # Check if the component has parameters
+        try:
+            model_dtype = next(clip_component.parameters()).dtype
+            print(f"Model dtype: {model_dtype}")
+        except StopIteration:
+            print("No parameters found in CLIP component!")
+            model_dtype = torch.float16  # Default fallback
         
         # Ensure all model parameters are on the same device
         clip_component = clip_component.to(device=device, dtype=model_dtype)
@@ -224,6 +254,10 @@ class TRT_CLIP_CONVERSION_BASE:
                 export_params=True,  # Export model parameters
             )
 
+        # Unload the CLIP model using the patcher
+        if hasattr(clip, 'patcher') and clip.patcher is not None:
+            clip.patcher.unpatch_model()
+        
         comfy.model_management.unload_all_models()
         comfy.model_management.soft_empty_cache()
 
