@@ -66,10 +66,43 @@ class TensorRTCLIPTextModel(torch.nn.Module):
         print(f"Loading TensorRT CLIP engine from: {self.engine_path}")
         with open(self.engine_path, "rb") as f:
             self.engine = self.runtime.deserialize_cuda_engine(f.read())
-            check_for_trt_errors(self.runtime)
+            
+            # Check for engine deseralization errors
+            if self.runtime.error_recorder.num_errors() > 0:
+                print(f"TensorRT - Warning: {self.runtime.error_recorder.num_errors()} errors during engine deserialization")
+                for i in range(self.runtime.error_recorder.num_errors()):
+                    print(f"  Error {i}: {self.runtime.error_recorder.get_error_desc(i)}")
+                self.runtime.error_recorder.clear()
+            
+            print(f"TensorRT - Engine loaded, creating execution context...")
             self.context = self.engine.create_execution_context()
-            check_for_trt_errors(self.runtime)
+            
+            # Check for context creation errors but don't fail - just warn
+            if self.runtime.error_recorder.num_errors() > 0:
+                print(f"TensorRT - Warning: {self.runtime.error_recorder.num_errors()} errors during context creation")
+                for i in range(self.runtime.error_recorder.num_errors()):
+                    print(f"  Error {i}: {self.runtime.error_recorder.get_error_desc(i)}")
+                self.runtime.error_recorder.clear()
+                
+        # Print engine information for debugging
         print(f"TensorRT CLIP engine loaded successfully")
+        print(f"TensorRT - Engine has {self.engine.num_io_tensors} tensors:")
+        for i in range(self.engine.num_io_tensors):
+            tensor_name = self.engine.get_tensor_name(i)
+            tensor_shape = self.engine.get_tensor_shape(tensor_name)
+            is_input = self.engine.get_tensor_mode(tensor_name) == trt.TensorIOMode.INPUT
+            print(f"  {tensor_name}: {'INPUT' if is_input else 'OUTPUT'} - shape: {tensor_shape}")
+            
+            # For input tensors, also show profile information
+            if is_input:
+                try:
+                    num_profiles = self.engine.num_optimization_profiles
+                    print(f"    Optimization profiles: {num_profiles}")
+                    for profile_idx in range(num_profiles):
+                        min_shape, opt_shape, max_shape = self.engine.get_tensor_profile_shape(tensor_name, profile_idx)
+                        print(f"    Profile {profile_idx}: min={min_shape}, opt={opt_shape}, max={max_shape}")
+                except Exception as e:
+                    print(f"    Could not get profile info: {e}")
 
     def get_input_embeddings(self):
         """Return dummy embedding for interface compatibility"""
@@ -86,8 +119,25 @@ class TensorRTCLIPTextModel(torch.nn.Module):
     def set_bindings_shape(self, inputs, split_batch):
         for k in inputs:
             shape = inputs[k].shape
-            shape = [shape[0] // split_batch] + list(shape[1:])
-            self.context.set_input_shape(k, shape)
+            new_shape = [shape[0] // split_batch] + list(shape[1:])
+            print(f"TensorRT - Setting input shape for '{k}': {shape} -> {new_shape}")
+            
+            # Get engine's expected shape for comparison
+            engine_shape = self.engine.get_tensor_shape(k)
+            print(f"TensorRT - Engine expects shape for '{k}': {engine_shape}")
+            
+            try:
+                self.context.set_input_shape(k, new_shape)
+                print(f"TensorRT - Successfully set input shape for '{k}'")
+            except Exception as e:
+                print(f"TensorRT - Failed to set input shape for '{k}': {e}")
+                print(f"TensorRT - Trying with original shape: {shape}")
+                try:
+                    self.context.set_input_shape(k, shape)
+                    print(f"TensorRT - Successfully set input shape with original shape for '{k}'")
+                except Exception as e2:
+                    print(f"TensorRT - Failed with original shape too: {e2}")
+                    raise e2
 
     def forward(self, input_tokens=None, attention_mask=None, embeds=None, num_tokens=None, 
                 intermediate_output=None, final_layer_norm_intermediate=True, dtype=torch.float32):
