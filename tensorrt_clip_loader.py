@@ -27,6 +27,20 @@ logger = trt.Logger(trt.Logger.INFO)
 runtime = trt.Runtime(logger)
 runtime.error_recorder = TrTErrorRecorder()
 
+class TensorRTCompatibleEmbedding(torch.nn.Module):
+    """Custom embedding that matches ComfyUI's CLIPEmbeddings interface"""
+    def __init__(self, vocab_size, embed_dim, device=None, dtype=None):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.vocab_size = vocab_size
+        # Create a dummy weight for interface compatibility
+        self.weight = torch.nn.Parameter(torch.zeros(vocab_size, embed_dim, device=device, dtype=dtype))
+        
+    def forward(self, input_tokens, out_dtype=torch.float32):
+        # For TensorRT, we don't actually use this embedding for inference
+        # This is just for interface compatibility
+        batch_size, seq_len = input_tokens.shape
+       
 
 class TensorRTCLIPTextModel(torch.nn.Module):
     """
@@ -44,7 +58,7 @@ class TensorRTCLIPTextModel(torch.nn.Module):
         
         # Create a dummy embedding layer for interface compatibility
         # This won't be used for inference, just for device/dtype detection
-        self.dummy_embedding = torch.nn.Embedding(1, hidden_size)
+        self.dummy_embedding = TensorRTCompatibleEmbedding(49408, hidden_size)
         
     def load(self):
         if self.engine is not None or self.context is not None:
