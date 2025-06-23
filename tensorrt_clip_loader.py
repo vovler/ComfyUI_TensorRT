@@ -689,44 +689,48 @@ class TensorRTCLIPLoader:
         }
 
     def load_clip(self, clip_l_name, clip_g_name):
-        clip_l_path = None
-        clip_g_path = None
-        
-        if clip_l_name != "None":
-            clip_l_path = folder_paths.get_full_path("tensorrt", clip_l_name)
-            if clip_l_path is None or not os.path.isfile(clip_l_path):
-                raise FileNotFoundError(f"CLIP-L file {clip_l_name} does not exist")
-                
-        if clip_g_name != "None":
-            clip_g_path = folder_paths.get_full_path("tensorrt", clip_g_name)
-            if clip_g_path is None or not os.path.isfile(clip_g_path):
-                raise FileNotFoundError(f"CLIP-G file {clip_g_name} does not exist")
-        
-        if clip_l_path is None and clip_g_path is None:
-            raise ValueError("At least one of CLIP-L or CLIP-G must be specified")
-        
-        # Create TensorRT CLIP wrapper
-        trt_clip_model = TrTCLIP(clip_l_path, clip_g_path, None)
-        
-        # Create a new CLIP object with TensorRT backend
-        # Use SDXL tokenizer since we're supporting dual CLIP (L and G)
-        from comfy.sdxl_clip import SDXLTokenizer
-        from comfy.model_patcher import ModelPatcher
-        
-        # Create a dummy patcher for compatibility
-        dummy_patcher = ModelPatcher(trt_clip_model, 
-                                   load_device=comfy.model_management.get_torch_device(),
-                                   offload_device=comfy.model_management.text_encoder_offload_device())
-        
-        new_clip = comfy.sd.CLIP(no_init=True)
-        new_clip.cond_stage_model = trt_clip_model
-        new_clip.tokenizer = SDXLTokenizer()
-        new_clip.patcher = dummy_patcher
-        new_clip.layer_idx = None
-        new_clip.use_clip_schedule = False
-        new_clip.tokenizer_options = {}
-        
-        # Add missing attributes for ComfyUI compatibility
-        new_clip.apply_hooks_to_conds = None  # This should be None as per ComfyUI's CLIP init
-        
-        return (new_clip,)
+        try:
+            clip_l_path = None
+            clip_g_path = None
+            
+            if clip_l_name != "None":
+                clip_l_path = folder_paths.get_full_path("tensorrt", clip_l_name)
+                if clip_l_path is None or not os.path.isfile(clip_l_path):
+                    raise FileNotFoundError(f"CLIP-L file {clip_l_name} does not exist")
+                    
+            if clip_g_name != "None":
+                clip_g_path = folder_paths.get_full_path("tensorrt", clip_g_name)
+                if clip_g_path is None or not os.path.isfile(clip_g_path):
+                    raise FileNotFoundError(f"CLIP-G file {clip_g_name} does not exist")
+            
+            if clip_l_path is None and clip_g_path is None:
+                raise ValueError("At least one of CLIP-L or CLIP-G must be specified")
+            
+            # Create TensorRT CLIP wrapper
+            trt_clip_model = TrTCLIP(clip_l_path, clip_g_path, None)
+            
+            # Create a new CLIP object with TensorRT backend
+            # Use SDXL tokenizer since we're supporting dual CLIP (L and G)
+            from comfy.sdxl_clip import SDXLTokenizer
+            from comfy.model_patcher import ModelPatcher
+            
+            # Create a dummy patcher for compatibility
+            dummy_patcher = ModelPatcher(trt_clip_model, 
+                                    load_device=comfy.model_management.get_torch_device(),
+                                    offload_device=comfy.model_management.text_encoder_offload_device())
+            
+            new_clip = comfy.sd.CLIP(no_init=True)
+            new_clip.cond_stage_model = trt_clip_model
+            new_clip.tokenizer = SDXLTokenizer()
+            new_clip.patcher = dummy_patcher
+            new_clip.layer_idx = None
+            new_clip.use_clip_schedule = False
+            new_clip.tokenizer_options = {}
+            
+            # Add missing attributes for ComfyUI compatibility
+            new_clip.apply_hooks_to_conds = None  # This should be None as per ComfyUI's CLIP init
+            
+            return (new_clip,)
+        except Exception as e:
+            print(f"TensorRTCLIPLoader - Error loading clip: {e}")
+            return (None,)

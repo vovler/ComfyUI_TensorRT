@@ -452,18 +452,22 @@ class DYNAMIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):
         sequence_length_opt,
         sequence_length_max,
     ):
-        super()._convert_clip(
-            clip,
-            filename_prefix,
-            batch_size_min,
-            batch_size_opt,
-            batch_size_max,
-            sequence_length_min,
-            sequence_length_opt,
-            sequence_length_max,
-            is_clip_l=True,
-            is_static=False,
-        )
+        try:
+            super()._convert_clip(
+                clip,
+                filename_prefix,
+                batch_size_min,
+                batch_size_opt,
+                batch_size_max,
+                sequence_length_min,
+                sequence_length_opt,
+                sequence_length_max,
+                is_clip_l=True,
+                is_static=False,
+            )
+        except Exception as e:
+            print(f"DYNAMIC_TRT_CLIP_L_CONVERSION - Error converting: {e}")
+            return ()
         return ()
 
 
@@ -510,18 +514,22 @@ class STATIC_TRT_CLIP_L_CONVERSION(TRT_CLIP_CONVERSION_BASE):
         batch_size_opt,
         sequence_length_opt,
     ):
-        super()._convert_clip(
-            clip,
-            filename_prefix,
-            batch_size_opt,
-            batch_size_opt,
-            batch_size_opt,
-            sequence_length_opt,
-            sequence_length_opt,
-            sequence_length_opt,
-            is_clip_l=True,
-            is_static=True,
-        )
+        try:
+            super()._convert_clip(
+                clip,
+                filename_prefix,
+                batch_size_opt,
+                batch_size_opt,
+                batch_size_opt,
+                sequence_length_opt,
+                sequence_length_opt,
+                sequence_length_opt,
+                is_clip_l=True,
+                is_static=True,
+            )
+        except Exception as e:
+            print(f"STATIC_TRT_CLIP_L_CONVERSION - Error converting: {e}")
+            return ()
         return ()
 
 
@@ -608,24 +616,32 @@ class DYNAMIC_TRT_CLIP_G_CONVERSION(TRT_CLIP_CONVERSION_BASE):
         sequence_length_opt,
         sequence_length_max,
     ):
-        super()._convert_clip(
-            clip,
-            filename_prefix,
-            batch_size_min,
-            batch_size_opt,
-            batch_size_max,
-            sequence_length_min,
-            sequence_length_opt,
-            sequence_length_max,
-            is_clip_l=False,
-            is_static=False,
-        )
+        try:    
+            super()._convert_clip(
+                clip,
+                filename_prefix,
+                batch_size_min,
+                batch_size_opt,
+                batch_size_max,
+                sequence_length_min,
+                sequence_length_opt,
+                sequence_length_max,
+                is_clip_l=False,
+                is_static=False,
+            )
+        except Exception as e:
+            print(f"DYNAMIC_TRT_CLIP_G_CONVERSION - Error converting: {e}")
+            return ()
         return ()
 
 
 class STATIC_TRT_CLIP_G_CONVERSION(TRT_CLIP_CONVERSION_BASE):
     def __init__(self):
-        super(STATIC_TRT_CLIP_G_CONVERSION, self).__init__()
+        try:
+            super(STATIC_TRT_CLIP_G_CONVERSION, self).__init__()
+        except Exception as e:
+            print(f"STATIC_TRT_CLIP_G_CONVERSION - Error initializing: {e}")
+            raise e
 
     RETURN_TYPES = ()
     FUNCTION = "convert"
@@ -666,16 +682,20 @@ class STATIC_TRT_CLIP_G_CONVERSION(TRT_CLIP_CONVERSION_BASE):
         batch_size_opt,
         sequence_length_opt,
     ):
-        super()._convert_clip(
-            clip,
-            filename_prefix,
-            batch_size_opt,
-            batch_size_opt,
-            batch_size_opt,
-            sequence_length_opt,
-            sequence_length_opt,
-            sequence_length_opt,
-            is_clip_l=False,
-            is_static=True,
-        )
+        try:
+            super()._convert_clip(
+                clip,
+                filename_prefix,
+                batch_size_opt,
+                batch_size_opt,
+                batch_size_opt,
+                sequence_length_opt,
+                sequence_length_opt,
+                sequence_length_opt,
+                is_clip_l=False,
+                is_static=True,
+            )
+        except Exception as e:
+            print(f"STATIC_TRT_CLIP_G_CONVERSION - Error converting: {e}")
+            return ()
         return ()

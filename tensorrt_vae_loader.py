@@ -381,31 +381,26 @@ class TensorRTVAELoader:
         }
 
     def load_vae(self, encoder_name, decoder_name):
-        encoder_path = None
-        decoder_path = None
-        
-        if encoder_name != "None":
-            encoder_path = folder_paths.get_full_path("tensorrt", encoder_name)
-            if encoder_path is None or not os.path.isfile(encoder_path):
-                raise FileNotFoundError(f"Encoder file {encoder_name} does not exist")
-                
-        if decoder_name != "None":
-            decoder_path = folder_paths.get_full_path("tensorrt", decoder_name)
-            if decoder_path is None or not os.path.isfile(decoder_path):
-                raise FileNotFoundError(f"Decoder file {decoder_name} does not exist")
-        
-        if encoder_path is None and decoder_path is None:
-            raise ValueError("At least one of encoder or decoder must be specified")
+        try:
+            encoder_path = None
+            decoder_path = None
             
-        vae = TrTVAE(encoder_path, decoder_path)
-        
-        return (vae,)
-
-
-NODE_CLASS_MAPPINGS = {
-    "TensorRTVAELoader": TensorRTVAELoader,
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "TensorRTVAELoader": "TensorRT VAE Loader",
-} 
+            if encoder_name != "None":
+                encoder_path = folder_paths.get_full_path("tensorrt", encoder_name)
+                if encoder_path is None or not os.path.isfile(encoder_path):
+                    raise FileNotFoundError(f"Encoder file {encoder_name} does not exist")
+                    
+            if decoder_name != "None":
+                decoder_path = folder_paths.get_full_path("tensorrt", decoder_name)
+                if decoder_path is None or not os.path.isfile(decoder_path):
+                    raise FileNotFoundError(f"Decoder file {decoder_name} does not exist")
+            
+            if encoder_path is None and decoder_path is None:
+                raise ValueError("At least one of encoder or decoder must be specified")
+                
+            vae = TrTVAE(encoder_path, decoder_path)
+            
+            return (vae,)
+        except Exception as e:
+            print(f"TensorRTVAELoader - Error loading VAE: {e}")
+            return (None,)

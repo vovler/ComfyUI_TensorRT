@@ -54,28 +54,31 @@ class TensorRTLoader:
                              }}
 
     def load_unet(self, unet_name, model_type):
+        try:
+            unet_path = folder_paths.get_full_path("tensorrt", unet_name)
+            if unet_path is None:
+                raise FileNotFoundError(f"File {unet_path} does not exist")
+                
+            if not os.path.isfile(unet_path):
+                raise FileNotFoundError(f"File {unet_path} does not exist")
 
-        unet_path = folder_paths.get_full_path("tensorrt", unet_name)
-        if unet_path is None:
-            raise FileNotFoundError(f"File {unet_path} does not exist")
+            unet = TrTUnet(unet_path, runtime)
+
+            if model_type == "sdxl_base":
+                conf = comfy.supported_models.SDXL({"adm_in_channels": 2816})
+                conf.unet_config["disable_unet_model_creation"] = True
+                model = comfy.model_base.SDXL(conf)
+                # Set the diffusion_model attribute to our TensorRT UNet since we disabled automatic creation
+                model.diffusion_model = unet
+            else:
+                raise ValueError(f"Model type {model_type} not supported")
             
-        if not os.path.isfile(unet_path):
-            raise FileNotFoundError(f"File {unet_path} does not exist")
 
-        unet = TrTUnet(unet_path, runtime)
+            load_device = comfy.model_management.get_torch_device()
+            offload_device = comfy.model_management.unet_offload_device()
+            manageable_model = TrTModelManageable(model, unet, load_device, offload_device)
 
-        if model_type == "sdxl_base":
-            conf = comfy.supported_models.SDXL({"adm_in_channels": 2816})
-            conf.unet_config["disable_unet_model_creation"] = True
-            model = comfy.model_base.SDXL(conf)
-            # Set the diffusion_model attribute to our TensorRT UNet since we disabled automatic creation
-            model.diffusion_model = unet
-        else:
-            raise ValueError(f"Model type {model_type} not supported")
-        
-
-        load_device = comfy.model_management.get_torch_device()
-        offload_device = comfy.model_management.unet_offload_device()
-        manageable_model = TrTModelManageable(model, unet, load_device, offload_device)
-
-        return (manageable_model,)
+            return (manageable_model,)
+        except Exception as e:
+            print(f"TensorRTLoader - Error loading UNet: {e}")
+            return (None,)

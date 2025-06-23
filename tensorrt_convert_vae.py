@@ -366,27 +366,34 @@ class DYNAMIC_TRT_VAE_DECODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
         width_opt,
         width_max,
     ):
-        super()._convert_vae(
-            vae,
-            filename_prefix,
-            batch_size_min,
-            batch_size_opt,
-            batch_size_max,
-            height_min,
-            height_opt,
-            height_max,
-            width_min,
-            width_opt,
-            width_max,
-            is_encoder=False,
-            is_static=False,
-        )
+        try:
+            super()._convert_vae(
+                vae,
+                filename_prefix,
+                batch_size_min,
+                batch_size_opt,
+                batch_size_max,
+                height_min,
+                height_opt,
+                height_max,
+                width_min,
+                width_opt,
+                width_max,
+                is_encoder=False,
+                is_static=False,
+            )
+        except Exception as e:
+            print(f"DYNAMIC_TRT_VAE_DECODER_CONVERSION - Error converting: {e}")
+            return ()
         return ()
 
 
 class STATIC_TRT_VAE_DECODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
-    def __init__(self):
-        super(STATIC_TRT_VAE_DECODER_CONVERSION, self).__init__()
+    try:
+        def __init__(self):
+            super(STATIC_TRT_VAE_DECODER_CONVERSION, self).__init__()
+    except Exception as e:
+        print(f"STATIC_TRT_VAE_DECODER_CONVERSION - Error initializing: {e}")
 
     RETURN_TYPES = ()
     FUNCTION = "convert"
@@ -437,27 +444,34 @@ class STATIC_TRT_VAE_DECODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
         height_opt,
         width_opt,
     ):
-        super()._convert_vae(
-            vae,
-            filename_prefix,
-            batch_size_opt,
-            batch_size_opt,
-            batch_size_opt,
-            height_opt,
-            height_opt,
-            height_opt,
-            width_opt,
-            width_opt,
-            width_opt,
-            is_encoder=False,
-            is_static=True,
-        )
+        try:
+            super()._convert_vae(
+                vae,
+                filename_prefix,
+                batch_size_opt,
+                batch_size_opt,
+                batch_size_opt,
+                height_opt,
+                height_opt,
+                height_opt,
+                width_opt,
+                width_opt,
+                width_opt,
+                is_encoder=False,
+                is_static=True,
+            )
+        except Exception as e:
+            print(f"STATIC_TRT_VAE_DECODER_CONVERSION - Error converting: {e}")
+            return ()
         return ()
 
 
 class DYNAMIC_TRT_VAE_ENCODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
-    def __init__(self):
-        super(DYNAMIC_TRT_VAE_ENCODER_CONVERSION, self).__init__()
+    try:
+        def __init__(self):
+            super(DYNAMIC_TRT_VAE_ENCODER_CONVERSION, self).__init__()
+    except Exception as e:
+        print(f"DYNAMIC_TRT_VAE_ENCODER_CONVERSION - Error initializing: {e}")
 
     RETURN_TYPES = ()
     FUNCTION = "convert"
@@ -568,27 +582,34 @@ class DYNAMIC_TRT_VAE_ENCODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
         width_opt,
         width_max,
     ):
-        super()._convert_vae(
-            vae,
-            filename_prefix,
-            batch_size_min,
-            batch_size_opt,
-            batch_size_max,
-            height_min,
-            height_opt,
-            height_max,
-            width_min,
-            width_opt,
-            width_max,
-            is_encoder=True,
-            is_static=False,
-        )
+        try:
+            super()._convert_vae(
+                vae,
+                filename_prefix,
+                batch_size_min,
+                batch_size_opt,
+                batch_size_max,
+                height_min,
+                height_opt,
+                height_max,
+                width_min,
+                width_opt,
+                width_max,
+                is_encoder=True,
+                is_static=False,
+            )
+        except Exception as e:
+            print(f"DYNAMIC_TRT_VAE_ENCODER_CONVERSION - Error converting: {e}")
+            return ()
         return ()
 
 
 class STATIC_TRT_VAE_ENCODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
-    def __init__(self):
-        super(STATIC_TRT_VAE_ENCODER_CONVERSION, self).__init__()
+    try:
+        def __init__(self):
+            super(STATIC_TRT_VAE_ENCODER_CONVERSION, self).__init__()
+    except Exception as e:
+        print(f"STATIC_TRT_VAE_ENCODER_CONVERSION - Error initializing: {e}")
 
     RETURN_TYPES = ()
     FUNCTION = "convert"
@@ -639,19 +660,23 @@ class STATIC_TRT_VAE_ENCODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
         height_opt,
         width_opt,
     ):
-        super()._convert_vae(
-            vae,
-            filename_prefix,
-            batch_size_opt,
-            batch_size_opt,
-            batch_size_opt,
-            height_opt,
-            height_opt,
-            height_opt,
-            width_opt,
-            width_opt,
-            width_opt,
-            is_encoder=True,
-            is_static=True,
-        )
+        try:
+            super()._convert_vae(
+                vae,
+                filename_prefix,
+                batch_size_opt,
+                batch_size_opt,
+                batch_size_opt,
+                height_opt,
+                height_opt,
+                height_opt,
+                width_opt,
+                width_opt,
+                width_opt,
+                is_encoder=True,
+                is_static=True,
+            )
+        except Exception as e:
+            print(f"STATIC_TRT_VAE_ENCODER_CONVERSION - Error converting: {e}")
+            return ()
         return ()

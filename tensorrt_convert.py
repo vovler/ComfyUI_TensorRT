@@ -425,24 +425,28 @@ class DYNAMIC_TRT_MODEL_CONVERSION(TRT_MODEL_CONVERSION_BASE):
         context_max,
         num_video_frames,
     ):
-        super()._convert(
-            model,
-            filename_prefix,
-            batch_size_min,
-            batch_size_opt,
-            batch_size_max,
-            height_min,
-            height_opt,
-            height_max,
-            width_min,
-            width_opt,
-            width_max,
-            context_min,
-            context_opt,
-            context_max,
-            num_video_frames,
-            is_static=False,
-        )
+        try:
+            super()._convert(
+                model,
+                filename_prefix,
+                batch_size_min,
+                batch_size_opt,
+                batch_size_max,
+                height_min,
+                height_opt,
+                height_max,
+                width_min,
+                width_opt,
+                width_max,
+                context_min,
+                context_opt,
+                context_max,
+                num_video_frames,
+                is_static=False,
+            )
+        except Exception as e:
+            print(f"DYNAMIC_TRT_MODEL_CONVERSION - Error converting: {e}")
+            return ()
         return ()
 
 
@@ -519,22 +523,26 @@ class STATIC_TRT_MODEL_CONVERSION(TRT_MODEL_CONVERSION_BASE):
         context_opt,
         num_video_frames,
     ):
-        super()._convert(
-            model,
-            filename_prefix,
-            batch_size_opt,
-            batch_size_opt,
-            batch_size_opt,
-            height_opt,
-            height_opt,
-            height_opt,
-            width_opt,
-            width_opt,
-            width_opt,
-            context_opt,
-            context_opt,
-            context_opt,
-            num_video_frames,
-            is_static=True,
-        )
+        try:
+            super()._convert(
+                model,
+                filename_prefix,
+                batch_size_opt,
+                batch_size_opt,
+                batch_size_opt,
+                height_opt,
+                height_opt,
+                height_opt,
+                width_opt,
+                width_opt,
+                width_opt,
+                context_opt,
+                context_opt,
+                context_opt,
+                num_video_frames,
+                is_static=True,
+            )
+        except Exception as e:
+            print(f"STATIC_TRT_MODEL_CONVERSION - Error converting: {e}")
+            return ()
         return ()
