@@ -10,13 +10,16 @@ from .utils.tensorrt_error_recorder import TrTErrorRecorder
 from .models.unet import TrTUnet
 from .models.trtModel import TrTModelManageable
 
+from .utils.folder_setup import setup_tensorrt_folder_paths
+
+# Setup TensorRT folder paths
+setup_tensorrt_folder_paths()
+
+# Also add models directory to tensorrt search path
 if "tensorrt" in folder_paths.folder_names_and_paths:
-    folder_paths.folder_names_and_paths["tensorrt"][0].append(
-        os.path.join(folder_paths.models_dir, "tensorrt"))
-    folder_paths.folder_names_and_paths["tensorrt"][1].add(".engine")
-else:
-    folder_paths.folder_names_and_paths["tensorrt"] = (
-        [os.path.join(folder_paths.models_dir, "tensorrt")], {".engine"})
+    models_tensorrt_dir = os.path.join(folder_paths.models_dir, "tensorrt")
+    if models_tensorrt_dir not in folder_paths.folder_names_and_paths["tensorrt"][0]:
+        folder_paths.folder_names_and_paths["tensorrt"][0].append(models_tensorrt_dir)
 
 import tensorrt as trt
 

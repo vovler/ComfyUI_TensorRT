@@ -11,19 +11,11 @@ import comfy
 from typing import Any, Optional
 from .utils.tensorrt_error_recorder import TrTErrorRecorder
 from .utils.tqdm_progress_monitor import TQDMProgressMonitor
+from .utils.timing_cache import setup_timing_cache, save_timing_cache, get_timing_cache_path
+from .utils.folder_setup import setup_tensorrt_folder_paths
 
-
-# add output directory to tensorrt search path
-if "tensorrt" in folder_paths.folder_names_and_paths:
-    folder_paths.folder_names_and_paths["tensorrt"][0].append(
-        os.path.join(folder_paths.get_output_directory(), "tensorrt")
-    )
-    folder_paths.folder_names_and_paths["tensorrt"][1].add(".engine")
-else:
-    folder_paths.folder_names_and_paths["tensorrt"] = (
-        [os.path.join(folder_paths.get_output_directory(), "tensorrt")],
-        {".engine"},
-    )
+# Setup TensorRT folder paths
+setup_tensorrt_folder_paths()
 
 
 class VAEWrapper(torch.nn.Module):
@@ -40,55 +32,28 @@ class VAEWrapper(torch.nn.Module):
             return self.vae.decode(x)
 
 
-class TRT_VAE_CONVERSION_BASE:
-    def __init__(self):
-        self.output_dir = folder_paths.get_output_directory()
-        self.temp_dir = folder_paths.get_temp_directory()
-        self.timing_cache_path = os.path.normpath(
-            os.path.join(os.path.join(os.path.dirname(os.path.realpath(__file__)), "timing_cache_vae.trt"))
-        )
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        raise NotImplementedError
-
-    # Sets up the builder to use the timing cache file, and creates it if it does not already exist
-    def _setup_timing_cache(self, config: trt.IBuilderConfig):
-        buffer = b""
-        if os.path.exists(self.timing_cache_path):
-            with open(self.timing_cache_path, mode="rb") as timing_cache_file:
-                buffer = timing_cache_file.read()
-            print("Read {} bytes from VAE timing cache.".format(len(buffer)))
-        else:
-            print("No VAE timing cache found; Initializing a new one.")
-        timing_cache: trt.ITimingCache = config.create_timing_cache(buffer)
-        config.set_timing_cache(timing_cache, ignore_mismatch=True)
-
-    # Saves the config's timing cache to file
-    def _save_timing_cache(self, config: trt.IBuilderConfig):
-        timing_cache: trt.ITimingCache = config.get_timing_cache()
-        with open(self.timing_cache_path, "wb") as timing_cache_file:
-            timing_cache_file.write(memoryview(timing_cache.serialize()))
-
-    def _convert_vae(
-        self,
-        vae,
-        filename_prefix,
-        batch_size_min,
-        batch_size_opt,
-        batch_size_max,
-        height_min,
-        height_opt,
-        height_max,
-        width_min,
-        width_opt,
-        width_max,
-        is_encoder: bool,
-        is_static: bool,
-    ):
+def _convert_vae(
+    vae,
+    filename_prefix,
+    batch_size_min,
+    batch_size_opt,
+    batch_size_max,
+    height_min,
+    height_opt,
+    height_max,
+    width_min,
+    width_opt,
+    width_max,
+    is_encoder: bool,
+    is_static: bool,
+):
+        output_dir = folder_paths.get_output_directory()
+        temp_dir = folder_paths.get_temp_directory()
+        timing_cache_path = get_timing_cache_path("vae")
+        
         output_onnx = os.path.normpath(
             os.path.join(
-                os.path.join(self.temp_dir, "{}".format(time.time())), "vae_model.onnx"
+                os.path.join(temp_dir, "{}".format(time.time())), "vae_model.onnx"
             )
         )
 
@@ -175,7 +140,7 @@ class TRT_VAE_CONVERSION_BASE:
 
         config = builder.create_builder_config()
         profile = builder.create_optimization_profile()
-        self._setup_timing_cache(config)
+        setup_timing_cache(config, timing_cache_path)
         config.progress_monitor = TQDMProgressMonitor()
 
         # Set up optimization profile
@@ -237,7 +202,7 @@ class TRT_VAE_CONVERSION_BASE:
         serialized_engine = builder.build_serialized_network(network, config)
 
         full_output_folder, filename, counter, subfolder, filename_prefix = (
-            folder_paths.get_save_image_path(filename_prefix, self.output_dir)
+            folder_paths.get_save_image_path(filename_prefix, output_dir)
         )
         output_trt_engine = os.path.join(
             full_output_folder, f"{filename}_{counter:05}_.engine"
@@ -246,17 +211,14 @@ class TRT_VAE_CONVERSION_BASE:
         with open(output_trt_engine, "wb") as f:
             f.write(serialized_engine)
 
-        self._save_timing_cache(config)
+        save_timing_cache(config, timing_cache_path)
 
         vae_type = "encoder" if is_encoder else "decoder"
         print(f"TensorRT VAE {vae_type} conversion complete! Engine saved to: {output_trt_engine}")
         return {}
 
 
-class DYNAMIC_TRT_VAE_DECODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
-    def __init__(self):
-        super(DYNAMIC_TRT_VAE_DECODER_CONVERSION, self).__init__()
-
+class DYNAMIC_TRT_VAE_DECODER_CONVERSION:
     RETURN_TYPES = ()
     FUNCTION = "convert"
     OUTPUT_NODE = True
@@ -367,7 +329,7 @@ class DYNAMIC_TRT_VAE_DECODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
         width_max,
     ):
         try:
-            super()._convert_vae(
+            _convert_vae(
                 vae,
                 filename_prefix,
                 batch_size_min,
@@ -388,91 +350,10 @@ class DYNAMIC_TRT_VAE_DECODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
         return ()
 
 
-class STATIC_TRT_VAE_DECODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
-    try:
-        def __init__(self):
-            super(STATIC_TRT_VAE_DECODER_CONVERSION, self).__init__()
-    except Exception as e:
-        print(f"STATIC_TRT_VAE_DECODER_CONVERSION - Error initializing: {e}")
-
-    RETURN_TYPES = ()
-    FUNCTION = "convert"
-    OUTPUT_NODE = True
-    CATEGORY = "TensorRT"
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "vae": ("VAE",),
-                "filename_prefix": ("STRING", {"default": "tensorrt/ComfyUI_VAE_DEC_STAT"}),
-                "batch_size_opt": (
-                    "INT",
-                    {
-                        "default": 1,
-                        "min": 1,
-                        "max": 100,
-                        "step": 1,
-                    },
-                ),
-                "height_opt": (
-                    "INT",
-                    {
-                        "default": 1024,
-                        "min": 256,
-                        "max": 4096,
-                        "step": 64,
-                    },
-                ),
-                "width_opt": (
-                    "INT",
-                    {
-                        "default": 1024,
-                        "min": 256,
-                        "max": 4096,
-                        "step": 64,
-                    },
-                ),
-            },
-        }
-
-    def convert(
-        self,
-        vae,
-        filename_prefix,
-        batch_size_opt,
-        height_opt,
-        width_opt,
-    ):
-        try:
-            super()._convert_vae(
-                vae,
-                filename_prefix,
-                batch_size_opt,
-                batch_size_opt,
-                batch_size_opt,
-                height_opt,
-                height_opt,
-                height_opt,
-                width_opt,
-                width_opt,
-                width_opt,
-                is_encoder=False,
-                is_static=True,
-            )
-        except Exception as e:
-            print(f"STATIC_TRT_VAE_DECODER_CONVERSION - Error converting: {e}")
-            return ()
-        return ()
 
 
-class DYNAMIC_TRT_VAE_ENCODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
-    try:
-        def __init__(self):
-            super(DYNAMIC_TRT_VAE_ENCODER_CONVERSION, self).__init__()
-    except Exception as e:
-        print(f"DYNAMIC_TRT_VAE_ENCODER_CONVERSION - Error initializing: {e}")
 
+class DYNAMIC_TRT_VAE_ENCODER_CONVERSION:
     RETURN_TYPES = ()
     FUNCTION = "convert"
     OUTPUT_NODE = True
@@ -583,7 +464,7 @@ class DYNAMIC_TRT_VAE_ENCODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
         width_max,
     ):
         try:
-            super()._convert_vae(
+            _convert_vae(
                 vae,
                 filename_prefix,
                 batch_size_min,
@@ -604,79 +485,3 @@ class DYNAMIC_TRT_VAE_ENCODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
         return ()
 
 
-class STATIC_TRT_VAE_ENCODER_CONVERSION(TRT_VAE_CONVERSION_BASE):
-    try:
-        def __init__(self):
-            super(STATIC_TRT_VAE_ENCODER_CONVERSION, self).__init__()
-    except Exception as e:
-        print(f"STATIC_TRT_VAE_ENCODER_CONVERSION - Error initializing: {e}")
-
-    RETURN_TYPES = ()
-    FUNCTION = "convert"
-    OUTPUT_NODE = True
-    CATEGORY = "TensorRT"
-
-    @classmethod
-    def INPUT_TYPES(cls):
-        return {
-            "required": {
-                "vae": ("VAE",),
-                "filename_prefix": ("STRING", {"default": "tensorrt/ComfyUI_VAE_ENC_STAT"}),
-                "batch_size_opt": (
-                    "INT",
-                    {
-                        "default": 1,
-                        "min": 1,
-                        "max": 100,
-                        "step": 1,
-                    },
-                ),
-                "height_opt": (
-                    "INT",
-                    {
-                        "default": 1024,
-                        "min": 256,
-                        "max": 4096,
-                        "step": 64,
-                    },
-                ),
-                "width_opt": (
-                    "INT",
-                    {
-                        "default": 1024,
-                        "min": 256,
-                        "max": 4096,
-                        "step": 64,
-                    },
-                ),
-            },
-        }
-
-    def convert(
-        self,
-        vae,
-        filename_prefix,
-        batch_size_opt,
-        height_opt,
-        width_opt,
-    ):
-        try:
-            super()._convert_vae(
-                vae,
-                filename_prefix,
-                batch_size_opt,
-                batch_size_opt,
-                batch_size_opt,
-                height_opt,
-                height_opt,
-                height_opt,
-                width_opt,
-                width_opt,
-                width_opt,
-                is_encoder=True,
-                is_static=True,
-            )
-        except Exception as e:
-            print(f"STATIC_TRT_VAE_ENCODER_CONVERSION - Error converting: {e}")
-            return ()
-        return ()

@@ -14,52 +14,28 @@ import comfy
 from typing import Any, Optional
 from .utils.tensorrt_error_recorder import TrTErrorRecorder
 from .utils.tqdm_progress_monitor import TQDMProgressMonitor
+from .utils.timing_cache import setup_timing_cache, save_timing_cache, get_timing_cache_path
 import numpy as np
 import traceback
 import onnxruntime as ort
 
-# add output directory to tensorrt search path
-if "tensorrt" in folder_paths.folder_names_and_paths:
-    folder_paths.folder_names_and_paths["tensorrt"][0].append(
-        os.path.join(folder_paths.get_output_directory(), "tensorrt")
-    )
-    folder_paths.folder_names_and_paths["tensorrt"][1].add(".engine")
-else:
-    folder_paths.folder_names_and_paths["tensorrt"] = (
-        [os.path.join(folder_paths.get_output_directory(), "tensorrt")],
-        {".engine"},
-    )
+from .utils.folder_setup import setup_tensorrt_folder_paths
+
+# Setup TensorRT folder paths
+setup_tensorrt_folder_paths()
 
 
 class TRT_CLIP_CONVERSION_BASE:
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
         self.temp_dir = folder_paths.get_temp_directory()
-        self.timing_cache_path = os.path.normpath(
-            os.path.join(os.path.join(os.path.dirname(os.path.realpath(__file__)), "timing_cache_clip.trt"))
-        )
+        self.timing_cache_path = get_timing_cache_path("clip")
 
     @classmethod
     def INPUT_TYPES(cls):
         raise NotImplementedError
 
-    # Sets up the builder to use the timing cache file, and creates it if it does not already exist
-    def _setup_timing_cache(self, config: trt.IBuilderConfig):
-        buffer = b""
-        if os.path.exists(self.timing_cache_path):
-            with open(self.timing_cache_path, mode="rb") as timing_cache_file:
-                buffer = timing_cache_file.read()
-            print("Read {} bytes from CLIP timing cache.".format(len(buffer)))
-        else:
-            print("No CLIP timing cache found; Initializing a new one.")
-        timing_cache: trt.ITimingCache = config.create_timing_cache(buffer)
-        config.set_timing_cache(timing_cache, ignore_mismatch=True)
 
-    # Saves the config's timing cache to file
-    def _save_timing_cache(self, config: trt.IBuilderConfig):
-        timing_cache: trt.ITimingCache = config.get_timing_cache()
-        with open(self.timing_cache_path, "wb") as timing_cache_file:
-            timing_cache_file.write(memoryview(timing_cache.serialize()))
 
     def _convert_clip(
         self,
@@ -540,7 +516,7 @@ class TRT_CLIP_CONVERSION_BASE:
 
         config = builder.create_builder_config()
         profile = builder.create_optimization_profile()
-        self._setup_timing_cache(config)
+        setup_timing_cache(config, self.timing_cache_path)
         config.progress_monitor = TQDMProgressMonitor()
 
         # Set up optimization profile - embeddings have shape [batch, sequence, embedding_dim]
@@ -587,7 +563,7 @@ class TRT_CLIP_CONVERSION_BASE:
         with open(output_trt_engine, "wb") as f:
             f.write(serialized_engine)
 
-        self._save_timing_cache(config)
+        save_timing_cache(config, self.timing_cache_path)
 
         clip_type = "CLIP-L" if is_clip_l else "CLIP-G"
         print(f"TensorRT {clip_type} conversion complete! Engine saved to: {output_trt_engine}")
