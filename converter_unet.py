@@ -6,6 +6,7 @@ import comfy.model_management
 import folder_paths
 from tqdm import tqdm
 import comfy
+import tensorrt as trt
 from typing import Any, Optional
 from .utils.tqdm_progress_monitor import TQDMProgressMonitor
 from .utils.timing_cache import setup_timing_cache, save_timing_cache, get_timing_cache_path
@@ -164,7 +165,7 @@ def _convert_model(
                 input_names[k], encode(min_shape_list), encode(opt_shape_list), encode(max_shape_list)
             )
 
-        config.set_flag(trt_manager.builder.BuilderFlag.FP16)
+        config.set_flag(trt.BuilderFlag.FP16)
 
         config.add_optimization_profile(profile)
 
