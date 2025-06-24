@@ -136,7 +136,7 @@ def _convert_vae(
         config.set_flag(trt.BuilderFlag.WEIGHT_STREAMING)
         config.max_aux_streams = 0
         config.builder_optimization_level = trt.BuilderOptimizationLevel.DEFAULT
-
+        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 10 * 1024 * 1024 * 1024)
         config.add_optimization_profile(profile)
 
         # Generate filename
