@@ -219,7 +219,7 @@ class TensorRTManager:
         """
         print("Building serialized TensorRT network...")
         serialized_engine = self._builder.build_serialized_network(network, config)
-        
+        print("WE ARE HERE")
         # Check for build errors
         if self._builder.error_recorder.num_errors() > 0:
             error_msgs = []
