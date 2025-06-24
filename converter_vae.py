@@ -139,7 +139,7 @@ def build_engine(onnx_file_path, engine_file_path, min_shape, opt_shape, max_sha
     
     # Return timing cache data for saving
     timing_cache_serialized = timing_cache.serialize()
-    return engine_file_path, bytes(memoryview(timing_cache_serialized))
+    return engine_file_path, timing_cache_serialized
 
 
 def _convert_vae(
