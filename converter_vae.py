@@ -536,6 +536,7 @@ class VAE_ENCODER_CONVERTER_TENSORRT_DYNAMIC:
                 width_max,
                 is_encoder=True,
             )
+            print("WE ARE HERE 2")
         except Exception as e:
             print(f"VAE_ENCODER_CONVERTER_TENSORRT_DYNAMIC - Error converting: {e}")
             return ()
