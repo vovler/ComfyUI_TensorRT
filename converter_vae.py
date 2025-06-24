@@ -130,14 +130,14 @@ def _convert_vae(
         profile.set_shape("x", min_shape, opt_shape, max_shape)
 
 
-        #config.set_flag(trt.BuilderFlag.FP16)
-        #config.set_flag(trt.BuilderFlag.PREFER_PRECISION_CONSTRAINTS)
+        # Memory optimization flags
         config.set_flag(trt.BuilderFlag.DIRECT_IO)
-        #config.set_flag(trt.BuilderFlag.REJECT_EMPTY_ALGORITHMS)
         config.set_flag(trt.BuilderFlag.WEIGHT_STREAMING)
+        
+
         config.max_aux_streams = 0
         config.builder_optimization_level = 3
-        config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 10 * 1024 * 1024 * 1024)
+        
         config.add_optimization_profile(profile)
 
         # Generate filename

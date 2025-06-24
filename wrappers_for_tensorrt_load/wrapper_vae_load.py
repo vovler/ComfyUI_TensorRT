@@ -5,6 +5,7 @@ import os
 import comfy.model_management
 from ..utils.tensorrt_error_recorder import TrTErrorRecorder, check_for_trt_errors
 from ..utils.trt_datatype_to_torch import trt_datatype_to_torch
+from ..tensorrt_model import get_tensorrt_manager
 import tensorrt as trt
 
 
@@ -17,15 +18,17 @@ class TrTVAEEncoder:
         self.context = None
         self._size = int(os.stat(engine_path).st_size)
         self.runtime = runtime
+        self.trt_manager = get_tensorrt_manager()
 
     def load(self):
         if self.engine is not None or self.context is not None:
             return
-        with open(self.engine_path, "rb") as f:
-            self.engine = self.runtime.deserialize_cuda_engine(f.read())
-            check_for_trt_errors(self.runtime)
-            self.context = self.engine.create_execution_context()
-            check_for_trt_errors(self.runtime)
+        
+        # Use centralized TensorRT manager for engine loading
+        self.engine = self.trt_manager.deserialize_engine(self.engine_path, f"vae_encoder_{id(self)}")
+        
+        # Create context using centralized manager
+        self.context = self.trt_manager.create_execution_context(self.engine, f"vae_encoder_ctx_{id(self)}")
 
     @property
     def size(self) -> int:
@@ -110,14 +113,12 @@ class TrTVAEEncoder:
         return out
 
     def unload(self):
-        engine_obj = self.engine
-        self.engine = None
-        if engine_obj is not None:
-            del engine_obj
-        context_obj = self.context
-        self.context = None
-        if context_obj is not None:
-            del context_obj
+        if self.context is not None:
+            self.trt_manager.unload_context(f"vae_encoder_ctx_{id(self)}")
+            self.context = None
+        if self.engine is not None:
+            self.trt_manager.unload_engine(f"vae_encoder_{id(self)}")
+            self.engine = None
 
 
 class TrTVAEDecoder:
@@ -129,15 +130,17 @@ class TrTVAEDecoder:
         self.context = None
         self._size = int(os.stat(engine_path).st_size)
         self.runtime = runtime
+        self.trt_manager = get_tensorrt_manager()
 
     def load(self):
         if self.engine is not None or self.context is not None:
             return
-        with open(self.engine_path, "rb") as f:
-            self.engine = self.runtime.deserialize_cuda_engine(f.read())
-            check_for_trt_errors(self.runtime)
-            self.context = self.engine.create_execution_context()
-            check_for_trt_errors(self.runtime)
+        
+        # Use centralized TensorRT manager for engine loading
+        self.engine = self.trt_manager.deserialize_engine(self.engine_path, f"vae_decoder_{id(self)}")
+        
+        # Create context using centralized manager
+        self.context = self.trt_manager.create_execution_context(self.engine, f"vae_decoder_ctx_{id(self)}")
 
     @property
     def size(self) -> int:
@@ -222,14 +225,12 @@ class TrTVAEDecoder:
         return out
 
     def unload(self):
-        engine_obj = self.engine
-        self.engine = None
-        if engine_obj is not None:
-            del engine_obj
-        context_obj = self.context
-        self.context = None
-        if context_obj is not None:
-            del context_obj
+        if self.context is not None:
+            self.trt_manager.unload_context(f"vae_decoder_ctx_{id(self)}")
+            self.context = None
+        if self.engine is not None:
+            self.trt_manager.unload_engine(f"vae_decoder_{id(self)}")
+            self.engine = None
 
 
 class TrTVAE:
