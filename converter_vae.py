@@ -68,7 +68,7 @@ def build_engine(onnx_file_path, engine_file_path, min_shape, opt_shape, max_sha
 
     print("Configuring TensorRT builder for maximum performance on specific target...")
 
-    config.set_flag(trt.BuilderFlag.FP16)
+    #config.set_flag(trt.BuilderFlag.FP16)
     config.set_flag(trt.BuilderFlag.DIRECT_IO)
     config.set_flag(trt.BuilderFlag.WEIGHT_STREAMING)
     config.hardware_compatibility_level = trt.HardwareCompatibilityLevel.NONE
