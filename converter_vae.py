@@ -73,7 +73,7 @@ def build_engine(onnx_file_path, engine_file_path, min_shape, opt_shape, max_sha
     config.set_flag(trt.BuilderFlag.WEIGHT_STREAMING)
     config.hardware_compatibility_level = trt.HardwareCompatibilityLevel.NONE
     config.set_preview_feature(trt.PreviewFeature.RUNTIME_ACTIVATION_RESIZE_10_10, True)
-    
+
     config.builder_optimization_level = 5
     if hasattr(trt, 'TilingOptimizationLevel'):
         print("Setting tiling optimization level to FULL")
@@ -138,9 +138,10 @@ def build_engine(onnx_file_path, engine_file_path, min_shape, opt_shape, max_sha
     # Save engine to file
     with open(engine_file_path, "wb") as f:
         f.write(serialized_engine)
-    
+    print("Engine saved to file")
     # Return timing cache data for saving
     timing_cache_serialized = timing_cache.serialize()
+    print("Timing cache serialized")
     return engine_file_path, timing_cache_serialized
 
 
@@ -267,6 +268,7 @@ def _convert_vae(
         timing_cache_data=timing_cache_data
     )
 
+    print("Out of build_engine function")
     if engine_path and timing_cache_serialized:
         # Save timing cache
         os.makedirs(os.path.dirname(timing_cache_path), exist_ok=True)
