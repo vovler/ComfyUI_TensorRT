@@ -16,9 +16,6 @@ from .tensorrt_model import get_tensorrt_manager
 from .wrappers_for_onnx_convert.wrapper_vae_convert import VAEWrapper
 import math
 
-# Create TensorRT logger
-TRT_LOGGER = trt.Logger(trt.Logger.INFO)
-
 def export_to_onnx(model, onnx_file_path, input_name, output_name, input_shape, dynamic_axes):
     """Export VAE model to ONNX format"""
     if os.path.exists(onnx_file_path):
