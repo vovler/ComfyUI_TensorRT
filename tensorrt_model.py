@@ -146,6 +146,9 @@ class TensorRTManager:
             engine_data = f.read()
         
         engine = self._runtime.deserialize_cuda_engine(engine_data)
+        engine.weight_streaming_budget_v2 = (
+            4 << 30
+        )
         
         # Check for deserialization errors
         if self._runtime.error_recorder.num_errors() > 0:
