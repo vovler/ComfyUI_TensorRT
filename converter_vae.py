@@ -134,6 +134,7 @@ def _convert_vae(
         config.set_flag(trt.BuilderFlag.DIRECT_IO)
         config.set_flag(trt.BuilderFlag.REJECT_EMPTY_ALGORITHMS)
         config.set_flag(trt.BuilderFlag.WEIGHT_STREAMING)
+        config.set_flag(trt.BuilderFlag.STRICT_TYPES)
         config.max_aux_streams = 0
         config.builder_optimization_level = 3
         config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 10 * 1024 * 1024 * 1024)
