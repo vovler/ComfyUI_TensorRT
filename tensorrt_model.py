@@ -230,8 +230,10 @@ class TensorRTManager:
         if serialized_engine is None:
             raise RuntimeError("Failed to build serialized network")
         
-        print(f"Successfully built serialized network ({len(serialized_engine)} bytes)")
-        return serialized_engine
+        # Convert IHostMemory to bytes
+        engine_bytes = bytes(memoryview(serialized_engine))
+        print(f"Successfully built serialized network ({len(engine_bytes)} bytes)")
+        return engine_bytes
     
     def unload_engine(self, engine_id: str):
         """
