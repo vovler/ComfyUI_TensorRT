@@ -136,7 +136,7 @@ def _convert_vae(
         
 
         config.max_aux_streams = 0
-        config.builder_optimization_level = 3
+        config.builder_optimization_level = 5
         
         config.add_optimization_profile(profile)
 
