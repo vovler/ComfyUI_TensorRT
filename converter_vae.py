@@ -131,9 +131,9 @@ def _convert_vae(
 
 
         #config.set_flag(trt.BuilderFlag.FP16)
-        config.set_flag(trt.BuilderFlag.PREFER_PRECISION_CONSTRAINTS)
+        #config.set_flag(trt.BuilderFlag.PREFER_PRECISION_CONSTRAINTS)
         config.set_flag(trt.BuilderFlag.DIRECT_IO)
-        config.set_flag(trt.BuilderFlag.REJECT_EMPTY_ALGORITHMS)
+        #config.set_flag(trt.BuilderFlag.REJECT_EMPTY_ALGORITHMS)
         config.set_flag(trt.BuilderFlag.WEIGHT_STREAMING)
         config.max_aux_streams = 0
         config.builder_optimization_level = 3
