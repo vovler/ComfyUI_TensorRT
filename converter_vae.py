@@ -103,6 +103,7 @@ def _convert_vae(
 
         # TRT conversion starts here - Use centralized TensorRT manager
         network = trt_manager.create_network()
+        
         parser = trt_manager.create_onnx_parser(network)
         success = parser.parse_from_file(output_onnx)
         for idx in range(parser.num_errors):

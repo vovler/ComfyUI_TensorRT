@@ -76,14 +76,24 @@ class TensorRTManager:
         """Get the global TensorRT builder (reused for all builds)"""
         return self._builder
     
-    def create_network(self, explicit_batch: bool = True) -> trt.INetworkDefinition:
+    def create_network(self, flags: Optional[int] = None, explicit_batch: bool = True, strongly_typed: bool = True) -> trt.INetworkDefinition:
         """
         Create a new network definition for model building.
         Should be used once per model being built, then discarded.
+        
+        Args:
+            flags: Optional pre-computed flags value. If provided, explicit_batch and strongly_typed are ignored.
+            explicit_batch: Whether to use explicit batch dimension (ignored if flags is provided)
+            strongly_typed: Whether to use strongly typed network (ignored if flags is provided)
         """
-        flags = 0
-        if explicit_batch:
-            flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+        
+        if flags is None:
+            # Compute flags from boolean parameters
+            flags = 0
+            if explicit_batch:
+                flags = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
+            if strongly_typed:
+                flags |= 1 << int(trt.NetworkDefinitionCreationFlag.STRONGLY_TYPED)
         
         network = self._builder.create_network(flags)
         print(f"Created new NetworkDefinition with flags: {flags}")
