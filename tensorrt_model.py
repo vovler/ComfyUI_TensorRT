@@ -232,7 +232,7 @@ class TensorRTManager:
             raise RuntimeError("Failed to build serialized network")
         
         print(f"Successfully built serialized network)")
-        return engine_bytes
+        return serialized_engine
     
     def unload_engine(self, engine_id: str):
         """

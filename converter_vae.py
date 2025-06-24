@@ -75,6 +75,7 @@ def build_engine(onnx_file_path, engine_file_path, min_shape, opt_shape, max_sha
     
     config.builder_optimization_level = 5
     if hasattr(trt, 'TilingOptimizationLevel'):
+        print("Setting tiling optimization level to FULL")
         config.tiling_optimization_level = trt.TilingOptimizationLevel.FULL
 
     # Memory pool limit - ensure it's a power of 2 and above minimum threshold
