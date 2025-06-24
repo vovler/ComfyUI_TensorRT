@@ -5,21 +5,21 @@ import folder_paths
 def setup_tensorrt_folder_paths():
     """
     Sets up TensorRT folder paths for ComfyUI.
-    Adds the output directory to tensorrt search path and registers .engine files.
+    Registers .engine files in model folders where they should be saved.
     """
-    tensorrt_output_dir = os.path.join(folder_paths.get_output_directory(), "tensorrt")
+    # Add .engine extension to existing model folders where TensorRT engines will be saved
+    model_folders = ["vae", "diffusion_models", "text_encoders"]
     
-    if "tensorrt" in folder_paths.folder_names_and_paths:
-        # Add output directory if not already present
-        if tensorrt_output_dir not in folder_paths.folder_names_and_paths["tensorrt"][0]:
-            folder_paths.folder_names_and_paths["tensorrt"][0].append(tensorrt_output_dir)
-        # Ensure .engine extension is registered
-        folder_paths.folder_names_and_paths["tensorrt"][1].add(".engine")
-    else:
-        # Create new tensorrt folder path entry
-        folder_paths.folder_names_and_paths["tensorrt"] = (
-            [tensorrt_output_dir],
-            {".engine"},
-        )
+    for folder_name in model_folders:
+        if folder_name in folder_paths.folder_names_and_paths:
+            # Add .engine extension to the existing folder
+            folder_paths.folder_names_and_paths[folder_name][1].add(".engine")
+            print(f"Added .engine extension to {folder_name} folder")
+        else:
+            print(f"Warning: {folder_name} folder not found in folder_paths")
     
-    print(f"TensorRT folder paths configured: {folder_paths.folder_names_and_paths.get('tensorrt', 'Not found')}") 
+    print(f"TensorRT folder paths configured:")
+    for folder_name in model_folders:
+        if folder_name in folder_paths.folder_names_and_paths:
+            paths, extensions = folder_paths.folder_names_and_paths[folder_name]
+            print(f"  {folder_name}: paths={paths}, extensions={extensions}") 

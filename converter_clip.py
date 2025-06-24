@@ -14,6 +14,7 @@ from typing import Any, Optional
 from .utils.tqdm_progress_monitor import TQDMProgressMonitor
 from .utils.timing_cache import setup_timing_cache, save_timing_cache, get_timing_cache_path
 from .tensorrt_model import get_tensorrt_manager
+from .wrappers_for_onnx_convert.wrapper_clip_convert import ClipEmbedWrapper
 import numpy as np
 import traceback
 import onnxruntime as ort
@@ -30,7 +31,9 @@ def convert_clip(
     sequence_length_max,
     is_clip_l: bool,
 ):
-    output_dir = folder_paths.get_output_directory()
+    # Save engines in CLIP model folder
+    clip_folders = folder_paths.get_folder_paths("text_encoders")
+    output_dir = clip_folders[0] if clip_folders else folder_paths.get_output_directory()
     temp_dir = folder_paths.get_temp_directory()
     timing_cache_path = get_timing_cache_path("clip")
     trt_manager = get_tensorrt_manager()
@@ -124,111 +127,7 @@ def convert_clip(
 
     os.makedirs(os.path.dirname(output_onnx), exist_ok=True)
     
-    # Create wrapper model that handles layer selection and intermediate outputs properly
-    class ClipEmbedWrapper(torch.nn.Module):
-        def __init__(self, clip_model):
-            super().__init__()
-            self.clip_model = clip_model
-            
-        def forward(self, embeds):
-            # Create proper attention mask for CLIP sequence
-            batch_size, seq_len = embeds.shape[:2]
-            attention_mask = torch.zeros((batch_size, seq_len), dtype=torch.long, device=embeds.device)
-            
-            # For our sequence: [start_token, end_token, pad, pad, ..., pad]
-            # Attention mask: [1, 1, 0, 0, ..., 0]
-            attention_mask[:, 0] = 1   # start token
-            attention_mask[:, 1] = 1   # end token (immediately after start)
-            # Remaining positions remain 0 for padding
-            
-            # Calculate actual number of non-padded tokens per batch
-            num_tokens = attention_mask.sum(dim=1).tolist()
-            
-            # DEBUG: Print debug info about the forward pass
-            print(f"    🔍 ClipEmbedWrapper forward debug:")
-            print(f"        embeds shape: {embeds.shape}, dtype: {embeds.dtype}")
-            print(f"        attention_mask shape: {attention_mask.shape}, sum: {attention_mask.sum().item()}")
-            print(f"        num_tokens: {num_tokens}")
-            print(f"        layer: {self.clip_model.layer}")
-            print(f"        layer_idx: {self.clip_model.layer_idx}")
-            print(f"        enable_attention_masks: {self.clip_model.enable_attention_masks}")
-            print(f"        layer_norm_hidden_state: {self.clip_model.layer_norm_hidden_state}")
-            
-            # Handle layer selection like the original forward method
-            if self.clip_model.layer == "all":
-                intermediate_output = "all"
-            else:
-                intermediate_output = self.clip_model.layer_idx
-            
-            # Use attention mask if the model supports it
-            attention_mask_model = None
-            if self.clip_model.enable_attention_masks:
-                attention_mask_model = attention_mask
-            
-            print(f"        intermediate_output: {intermediate_output}")
-            print(f"        attention_mask_model: {attention_mask_model}")
-            
-            # Create dummy token tensor that matches the embedding sequence
-            # The transformer might need this even when we provide embeds
-            batch_size, seq_len = embeds.shape[:2]
-            device = embeds.device
-            
-            # Get the special tokens from the clip model
-            special_tokens = self.clip_model.special_tokens
-            start_token = special_tokens.get("start", 49406)
-            end_token = special_tokens.get("end", 49407)
-            pad_token = special_tokens.get("pad", 49407)
-            
-            # Create the token sequence that matches our embeddings
-            dummy_tokens = torch.zeros((batch_size, seq_len), dtype=torch.long, device=device)
-            for b in range(batch_size):
-                dummy_tokens[b, 0] = start_token  # start token
-                dummy_tokens[b, 1] = end_token   # end token  
-                dummy_tokens[b, 2:] = pad_token  # pad tokens
-            
-            outputs = self.clip_model.transformer(
-                dummy_tokens, 
-                attention_mask_model,
-                embeds=embeds, 
-                num_tokens=num_tokens, 
-                intermediate_output=intermediate_output,
-                final_layer_norm_intermediate=self.clip_model.layer_norm_hidden_state,
-                dtype=torch.float32
-            )
-            
-            print(f"        outputs length: {len(outputs)}")
-            for i, output in enumerate(outputs):
-                if output is not None:
-                    print(f"        output[{i}] shape: {output.shape}, dtype: {output.dtype}")
-                    print(f"        output[{i}] stats: min={output.min().item():.6f}, max={output.max().item():.6f}, mean={output.mean().item():.6f}")
-                    nan_count = torch.isnan(output).sum().item()
-                    print(f"        output[{i}] NaN count: {nan_count}/{output.numel()}")
-                else:
-                    print(f"        output[{i}]: None")
-            
-            # Handle layer output selection like the original forward method
-            if self.clip_model.layer == "last":
-                z = outputs[0].float()  # Final layer
-            else:
-                z = outputs[1].float()  # Intermediate layer (for hidden/all)
-            
-            # Zero out masked tokens if needed
-            if self.clip_model.zero_out_masked:
-                z *= attention_mask.unsqueeze(-1).float()
-
-            # Handle pooled output
-            pooled_output = None
-            if len(outputs) >= 3:
-                if not self.clip_model.return_projected_pooled and len(outputs) >= 4 and outputs[3] is not None:
-                    pooled_output = outputs[3].float()
-                elif outputs[2] is not None:
-                    pooled_output = outputs[2].float()
-            
-            if pooled_output is None:
-                pooled_output = torch.zeros((z.shape[0], z.shape[-1]), dtype=z.dtype, device=z.device)
-            
-            return z, pooled_output
-
+    # Use the wrapper model from the wrapper file
     wrapper_model = ClipEmbedWrapper(clip_component)
     
     # TEST PYTORCH MODEL BEFORE ONNX EXPORT
@@ -293,8 +192,6 @@ def convert_clip(
     # TEST ONNX MODEL BEFORE TENSORRT CONVERSION
     print(f"\n🧪 Testing ONNX model for {clip_type_str}...")
     try:
-        
-        
         # Create ONNX Runtime session with GPU if available
         providers = ['CUDAExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
         print(f"   ONNX Runtime providers: {providers}")
@@ -369,8 +266,6 @@ def convert_clip(
     # TEST ONNX MODEL WITH PYTORCH DIRECTLY
     print(f"\n🔥 Testing ONNX model with PyTorch directly for {clip_type_str}...")
     try:
-        
-        
         # Load the ONNX model
         print(f"   Loading ONNX model for inspection...")
         onnx_model_proto = onnx.load(output_onnx)
@@ -503,7 +398,6 @@ def convert_clip(
     max_shape = tuple(max_shape_list)
     
     profile.set_shape("embeddings", min_shape, opt_shape, max_shape)
-
 
     config.set_flag(trt_manager.builder.BuilderFlag.FP16)
     config.add_optimization_profile(profile)

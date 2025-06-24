@@ -29,7 +29,9 @@ def _convert_model(
     context_opt,
     context_max,
 ):
-        output_dir = folder_paths.get_output_directory()
+        # Save engines in UNet model folder
+        unet_folders = folder_paths.get_folder_paths("diffusion_models")
+        output_dir = unet_folders[0] if unet_folders else folder_paths.get_output_directory()
         temp_dir = folder_paths.get_temp_directory()
         timing_cache_path = get_timing_cache_path("unet")
         trt_manager = get_tensorrt_manager()

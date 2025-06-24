@@ -18,10 +18,12 @@ class VAE_LOADER_TENSORRT:
 
     @classmethod
     def INPUT_TYPES(cls):
-        engine_files = folder_paths.get_filename_list("tensorrt")
+        # Get engine files from VAE folder
+        vae_files = folder_paths.get_filename_list("vae")
+        
         # Filter for VAE engines
-        vae_encoder_files = ["None"] + [f for f in engine_files if "encoder" in f.lower()]
-        vae_decoder_files = ["None"] + [f for f in engine_files if "decoder" in f.lower()]
+        vae_encoder_files = ["None"] + [f for f in vae_files if f.endswith(".engine") and "encoder" in f.lower()]
+        vae_decoder_files = ["None"] + [f for f in vae_files if f.endswith(".engine") and "decoder" in f.lower()]
         
         return {
             "required": {
@@ -36,14 +38,14 @@ class VAE_LOADER_TENSORRT:
             decoder_path = None
             
             if encoder_name != "None":
-                encoder_path = folder_paths.get_full_path("tensorrt", encoder_name)
+                encoder_path = folder_paths.get_full_path("vae", encoder_name)
                 if encoder_path is None or not os.path.isfile(encoder_path):
-                    raise FileNotFoundError(f"Encoder file {encoder_name} does not exist")
+                    raise FileNotFoundError(f"Encoder file {encoder_name} does not exist in VAE folder")
                     
             if decoder_name != "None":
-                decoder_path = folder_paths.get_full_path("tensorrt", decoder_name)
+                decoder_path = folder_paths.get_full_path("vae", decoder_name)
                 if decoder_path is None or not os.path.isfile(decoder_path):
-                    raise FileNotFoundError(f"Decoder file {decoder_name} does not exist")
+                    raise FileNotFoundError(f"Decoder file {decoder_name} does not exist in VAE folder")
             
             if encoder_path is None and decoder_path is None:
                 raise ValueError("At least one of encoder or decoder must be specified")

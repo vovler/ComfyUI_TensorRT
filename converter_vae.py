@@ -5,7 +5,6 @@ import time
 import comfy.model_management
 import comfy.sd
 import folder_paths
-import tensorrt as trt
 from tqdm import tqdm
 import comfy
 from typing import Any, Optional
@@ -29,7 +28,9 @@ def _convert_vae(
     width_max,
     is_encoder: bool,
 ):
-        output_dir = folder_paths.get_output_directory()
+        # Save engines in VAE model folder
+        vae_folders = folder_paths.get_folder_paths("vae")
+        output_dir = vae_folders[0] if vae_folders else folder_paths.get_output_directory()
         temp_dir = folder_paths.get_temp_directory()
         timing_cache_path = get_timing_cache_path("vae")
         trt_manager = get_tensorrt_manager()
@@ -120,9 +121,9 @@ def _convert_vae(
         opt_shape_list = [int(x) for x in inputs_shapes_opt]
         max_shape_list = [int(x) for x in inputs_shapes_max]
         
-        min_shape = trt.Dims(min_shape_list)
-        opt_shape = trt.Dims(opt_shape_list)
-        max_shape = trt.Dims(max_shape_list)
+        min_shape = tuple(min_shape_list)
+        opt_shape = tuple(opt_shape_list)
+        max_shape = tuple(max_shape_list)
         
         profile.set_shape("x", min_shape, opt_shape, max_shape)
 

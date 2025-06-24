@@ -7,7 +7,8 @@ import comfy.model_management
 import comfy.model_patcher
 import comfy.supported_models
 import folder_paths
-from .wrappers_for_tensorrt_load.wrapper_unet_load import TrTUnet, TrTModelManageable
+from .wrappers_for_tensorrt_load.wrapper_unet_load import TrTUnet
+from .wrappers_for_model_patcher.wrapper_unet_model_patcher import TrTModelManageable
 from .tensorrt_model import get_runtime
 
 
@@ -19,10 +20,14 @@ class UNET_LOADER_TENSORRT:
 
     @classmethod
     def INPUT_TYPES(cls):
+        # Get engine files from UNet folder
+        unet_files = folder_paths.get_filename_list("diffusion_models")
+        engine_files = [f for f in unet_files if f.endswith(".engine")]
+        
         return {
             "required": {
-                "unet_name": (folder_paths.get_filename_list("tensorrt"), {
-                    "tooltip": "Select a TensorRT engine file (.engine) from the tensorrt folder"
+                "unet_name": (engine_files, {
+                    "tooltip": "Select a TensorRT engine file (.engine) from the UNet folder"
                 }),
                 "model_type": (["sdxl_base"], {
                     "default": "sdxl_base",
@@ -41,10 +46,10 @@ class UNET_LOADER_TENSORRT:
                 if not model_type or model_type not in ["sdxl_base"]:
                     raise ValueError(f"Model type '{model_type}' not supported. Available types: ['sdxl_base']")
                 
-                # Get engine file path
-                unet_path = folder_paths.get_full_path("tensorrt", unet_name)
+                # Get engine file path from UNet folder
+                unet_path = folder_paths.get_full_path("diffusion_models", unet_name)
                 if unet_path is None:
-                    raise FileNotFoundError(f"TensorRT engine file '{unet_name}' not found in tensorrt folder")
+                    raise FileNotFoundError(f"TensorRT engine file '{unet_name}' not found in UNet folder")
                     
                 if not os.path.isfile(unet_path):
                     raise FileNotFoundError(f"TensorRT engine file does not exist: {unet_path}")

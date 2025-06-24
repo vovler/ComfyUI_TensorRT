@@ -9,6 +9,7 @@ import comfy.sdxl_clip
 import folder_paths
 from .tensorrt_model import get_runtime
 from .wrappers_for_tensorrt_load.wrapper_clip_load import TrTCompatibleEmbedding, TrTCLIP
+from .wrappers_for_model_patcher.wrapper_clip_model_patcher import TrTCLIPModelPatcher
 
 
 class CLIP_LOADER_TENSORRT:
@@ -18,10 +19,12 @@ class CLIP_LOADER_TENSORRT:
 
     @classmethod
     def INPUT_TYPES(cls):
-        engine_files = folder_paths.get_filename_list("tensorrt")
+        # Get engine files from CLIP folder
+        clip_files = folder_paths.get_filename_list("text_encoders")
+        
         # Filter for CLIP engines
-        clip_l_files = ["None"] + [f for f in engine_files if "clip_l" in f.lower()]
-        clip_g_files = ["None"] + [f for f in engine_files if "clip_g" in f.lower()]
+        clip_l_files = ["None"] + [f for f in clip_files if f.endswith(".engine") and "clip_l" in f.lower()]
+        clip_g_files = ["None"] + [f for f in clip_files if f.endswith(".engine") and "clip_g" in f.lower()]
         
         return {
             "required": {
@@ -34,16 +37,18 @@ class CLIP_LOADER_TENSORRT:
         try:
             clip_l_path = None
             clip_g_path = None
+            clip_l_engine = None
+            clip_g_engine = None
             
             if clip_l_name != "None":
-                clip_l_path = folder_paths.get_full_path("tensorrt", clip_l_name)
+                clip_l_path = folder_paths.get_full_path("text_encoders", clip_l_name)
                 if clip_l_path is None or not os.path.isfile(clip_l_path):
-                    raise FileNotFoundError(f"CLIP-L file {clip_l_name} does not exist")
+                    raise FileNotFoundError(f"CLIP-L file {clip_l_name} does not exist in CLIP folder")
                     
             if clip_g_name != "None":
-                clip_g_path = folder_paths.get_full_path("tensorrt", clip_g_name)
+                clip_g_path = folder_paths.get_full_path("text_encoders", clip_g_name)
                 if clip_g_path is None or not os.path.isfile(clip_g_path):
-                    raise FileNotFoundError(f"CLIP-G file {clip_g_name} does not exist")
+                    raise FileNotFoundError(f"CLIP-G file {clip_g_name} does not exist in CLIP folder")
             
             if clip_l_path is None and clip_g_path is None:
                 raise ValueError("At least one of CLIP-L or CLIP-G must be specified")
@@ -59,8 +64,10 @@ class CLIP_LOADER_TENSORRT:
                     dtype=torch.float16
                 )
                 # Replace the transformers with TensorRT versions
-                clip_model.clip_l.transformer = TrTCLIP(clip_l_path, runtime, hidden_size=768)
-                clip_model.clip_g.transformer = TrTCLIP(clip_g_path, runtime, hidden_size=1280)
+                clip_l_engine = TrTCLIP(clip_l_path, runtime, hidden_size=768)
+                clip_g_engine = TrTCLIP(clip_g_path, runtime, hidden_size=1280)
+                clip_model.clip_l.transformer = clip_l_engine
+                clip_model.clip_g.transformer = clip_g_engine
                 tokenizer = comfy.sdxl_clip.SDXLTokenizer()
                 
             elif clip_l_path:
@@ -69,7 +76,8 @@ class CLIP_LOADER_TENSORRT:
                     device=comfy.model_management.get_torch_device(),
                     dtype=torch.float16
                 )
-                clip_model.transformer = TrTCLIP(clip_l_path, runtime, hidden_size=768)
+                clip_l_engine = TrTCLIP(clip_l_path, runtime, hidden_size=768)
+                clip_model.transformer = clip_l_engine
                 tokenizer = comfy.sd1_clip.SDTokenizer()
                 
             elif clip_g_path:
@@ -78,15 +86,18 @@ class CLIP_LOADER_TENSORRT:
                     device=comfy.model_management.get_torch_device(),
                     dtype=torch.float16
                 )
-                clip_model.transformer = TrTCLIP(clip_g_path, runtime, hidden_size=1280)
+                clip_g_engine = TrTCLIP(clip_g_path, runtime, hidden_size=1280)
+                clip_model.transformer = clip_g_engine
                 tokenizer = comfy.sdxl_clip.SDXLClipGTokenizer()
             
-            # Create a new CLIP object using ComfyUI's standard approach
-            from comfy.model_patcher import ModelPatcher
-            
-            patcher = ModelPatcher(clip_model, 
-                                load_device=comfy.model_management.get_torch_device(),
-                                offload_device=comfy.model_management.text_encoder_offload_device())
+            # Create a new CLIP object using our custom TensorRT ModelPatcher
+            patcher = TrTCLIPModelPatcher(
+                clip_model, 
+                clip_l_engine=clip_l_engine,
+                clip_g_engine=clip_g_engine,
+                load_device=comfy.model_management.get_torch_device(),
+                offload_device=comfy.model_management.text_encoder_offload_device()
+            )
             
             new_clip = comfy.sd.CLIP(no_init=True)
             new_clip.cond_stage_model = clip_model
