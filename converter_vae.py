@@ -136,10 +136,16 @@ def build_engine(onnx_file_path, engine_file_path, min_shape, opt_shape, max_sha
     with open(engine_file_path, "wb") as f:
         f.write(serialized_engine)
     print("Engine saved to file")
-    # Return timing cache data for saving
+    
+    # Return timing cache data for saving - convert IHostMemory to bytes
     timing_cache_serialized = timing_cache.serialize()
     print("Timing cache serialized")
-    return engine_file_path, timing_cache_serialized
+    
+    # Convert IHostMemory to bytes to avoid crashes
+    timing_cache_bytes = bytes(memoryview(timing_cache_serialized))
+    print("Timing cache converted to bytes")
+    
+    return engine_file_path, timing_cache_bytes
 
 
 def _convert_vae(
@@ -255,7 +261,7 @@ def _convert_vae(
             print(f"Loaded timing cache from: {timing_cache_path}")
 
     # Build engine using the template function with centralized TensorRT manager
-    engine_path, timing_cache_serialized = build_engine(
+    engine_path, timing_cache_bytes = build_engine(
         onnx_file_path=output_onnx,
         engine_file_path=output_trt_engine,
         min_shape=inputs_shapes_min,
@@ -266,11 +272,11 @@ def _convert_vae(
     )
 
     print("Out of build_engine function")
-    if engine_path and timing_cache_serialized:
+    if engine_path and timing_cache_bytes:
         # Save timing cache
         os.makedirs(os.path.dirname(timing_cache_path), exist_ok=True)
         with open(timing_cache_path, 'wb') as f:
-            f.write(timing_cache_serialized)
+            f.write(timing_cache_bytes)
         print(f"Saved timing cache to: {timing_cache_path}")
 
         vae_type = "encoder" if is_encoder else "decoder"
