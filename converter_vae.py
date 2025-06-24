@@ -134,7 +134,7 @@ def _convert_vae(
         config.set_flag(trt.BuilderFlag.DIRECT_IO)
         config.set_flag(trt.BuilderFlag.WEIGHT_STREAMING)
         
-
+        config.set_weight_streaming_budget_v2(2 * 1024 * 1024 * 1024)  # 2GB
         config.max_aux_streams = 0
         config.builder_optimization_level = 5
         
