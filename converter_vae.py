@@ -14,6 +14,7 @@ from .utils.tqdm_progress_monitor import TQDMProgressMonitor
 from .utils.timing_cache import setup_timing_cache, save_timing_cache, get_timing_cache_path
 from .tensorrt_model import get_tensorrt_manager
 from .wrappers_for_onnx_convert.wrapper_vae_convert import VAEWrapper
+import math
 
 # Create TensorRT logger
 TRT_LOGGER = trt.Logger(trt.Logger.INFO)
@@ -77,12 +78,27 @@ def build_engine(onnx_file_path, engine_file_path, min_shape, opt_shape, max_sha
     if hasattr(trt, 'TilingOptimizationLevel'):
         config.tiling_optimization_level = trt.TilingOptimizationLevel.FULL
 
-    available_system_mem = psutil.virtual_memory().available
-    tactic_dram_limit = int(available_system_mem * 0.8)
-    config.set_memory_pool_limit(trt.MemoryPoolType.TACTIC_DRAM, tactic_dram_limit)
+    # Memory pool limit - ensure it's a power of 2 and above minimum threshold
+    try:
+        available_system_mem = psutil.virtual_memory().available
+        # Use 50% of available memory and round down to nearest power of 2
+        target_mem = int(available_system_mem * 0.5)
+        
+        # Find the largest power of 2 that's <= target_mem
+        
+        power_of_2_mem = 2 ** int(math.log2(target_mem))
+        
+        # Ensure minimum size (1GB)
+        min_mem_size = 1024 * 1024 * 1024  # 1GB
+        tactic_dram_limit = max(power_of_2_mem, min_mem_size)
+        
+        config.set_memory_pool_limit(trt.MemoryPoolType.TACTIC_DRAM, tactic_dram_limit)
+        print(f"Set memory pool limit to: {tactic_dram_limit / (1024*1024*1024):.1f} GB")
+    except Exception as e:
+        print(f"Warning: Could not set memory pool limit: {e}")
+        # Continue without setting memory pool limit
     
-    # Weight streaming budget
-    config.set_weight_streaming_budget_v2(2 * 1024 * 1024 * 1024)  # 2GB
+    # Note: Weight streaming budget is set on the engine after loading, not during building
     config.max_aux_streams = 0
     
     # Progress monitor
