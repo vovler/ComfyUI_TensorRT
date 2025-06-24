@@ -332,7 +332,7 @@ class VAE_DECODER_CONVERTER_TENSORRT_DYNAMIC:
                         "default": 512,
                         "min": 256,
                         "max": 4096,
-                        "step": 64,
+                        "step": 8,
                     },
                 ),
                 "height_opt": (
@@ -341,7 +341,7 @@ class VAE_DECODER_CONVERTER_TENSORRT_DYNAMIC:
                         "default": 1024,
                         "min": 256,
                         "max": 4096,
-                        "step": 64,
+                        "step": 8,
                     },
                 ),
                 "height_max": (
@@ -350,7 +350,7 @@ class VAE_DECODER_CONVERTER_TENSORRT_DYNAMIC:
                         "default": 2048,
                         "min": 256,
                         "max": 4096,
-                        "step": 64,
+                        "step": 8,
                     },
                 ),
                 "width_min": (
@@ -359,7 +359,7 @@ class VAE_DECODER_CONVERTER_TENSORRT_DYNAMIC:
                         "default": 512,
                         "min": 256,
                         "max": 4096,
-                        "step": 64,
+                        "step": 8,
                     },
                 ),
                 "width_opt": (
@@ -368,7 +368,7 @@ class VAE_DECODER_CONVERTER_TENSORRT_DYNAMIC:
                         "default": 1024,
                         "min": 256,
                         "max": 4096,
-                        "step": 64,
+                        "step": 8,
                     },
                 ),
                 "width_max": (
@@ -377,7 +377,7 @@ class VAE_DECODER_CONVERTER_TENSORRT_DYNAMIC:
                         "default": 2048,
                         "min": 256,
                         "max": 4096,
-                        "step": 64,
+                        "step": 8,
                     },
                 ),
             },
@@ -463,7 +463,7 @@ class VAE_ENCODER_CONVERTER_TENSORRT_DYNAMIC:
                         "default": 512,
                         "min": 256,
                         "max": 4096,
-                        "step": 64,
+                        "step": 8,
                     },
                 ),
                 "height_opt": (
@@ -472,7 +472,7 @@ class VAE_ENCODER_CONVERTER_TENSORRT_DYNAMIC:
                         "default": 1024,
                         "min": 256,
                         "max": 4096,
-                        "step": 64,
+                        "step": 8,
                     },
                 ),
                 "height_max": (
@@ -481,7 +481,7 @@ class VAE_ENCODER_CONVERTER_TENSORRT_DYNAMIC:
                         "default": 2048,
                         "min": 256,
                         "max": 4096,
-                        "step": 64,
+                        "step": 8,
                     },
                 ),
                 "width_min": (
@@ -490,7 +490,7 @@ class VAE_ENCODER_CONVERTER_TENSORRT_DYNAMIC:
                         "default": 512,
                         "min": 256,
                         "max": 4096,
-                        "step": 64,
+                        "step": 8,
                     },
                 ),
                 "width_opt": (
@@ -499,7 +499,7 @@ class VAE_ENCODER_CONVERTER_TENSORRT_DYNAMIC:
                         "default": 1024,
                         "min": 256,
                         "max": 4096,
-                        "step": 64,
+                        "step": 8,
                     },
                 ),
                 "width_max": (
@@ -508,7 +508,7 @@ class VAE_ENCODER_CONVERTER_TENSORRT_DYNAMIC:
                         "default": 2048,
                         "min": 256,
                         "max": 4096,
-                        "step": 64,
+                        "step": 8,
                     },
                 ),
             },
